@@ -114,6 +114,7 @@ async function startRecording(
     steps: [],
     isRecording: true,
     activeTabId: targetTabId,
+    trackedTabIds: targetTabId ? [targetTabId] : [],
   };
 
   await saveSession(newSession);
@@ -359,11 +360,73 @@ chrome.commands.onCommand.addListener(async (command) => {
 // Tab Management
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Stop recording if the active tab is closed
+// Track new tabs opened from existing tracked tabs
+chrome.tabs.onCreated.addListener(async (tab) => {
+  const isRecording = await getIsRecording();
+  if (!isRecording || !tab.id || !tab.openerTabId) return;
+
+  const sessionId = await getActiveSessionId();
+  if (!sessionId) return;
+
+  const session = await getSession(sessionId);
+  if (!session || !session.trackedTabIds) return;
+
+  if (session.trackedTabIds.includes(tab.openerTabId)) {
+    const updatedTracked = [...session.trackedTabIds, tab.id];
+    await saveSession({ ...session, trackedTabIds: updatedTracked, activeTabId: tab.id });
+    await setActiveTabId(tab.id);
+    console.log(`[AutoDoc SW] Tracking new tab ${tab.id} opened from ${tab.openerTabId}`);
+  }
+});
+
+// Update active tab when switching between tracked tabs
+chrome.tabs.onActivated.addListener(async (activeInfo) => {
+  const isRecording = await getIsRecording();
+  if (!isRecording) return;
+
+  const sessionId = await getActiveSessionId();
+  if (!sessionId) return;
+
+  const session = await getSession(sessionId);
+  if (!session || !session.trackedTabIds) return;
+
+  if (session.trackedTabIds.includes(activeInfo.tabId)) {
+    await saveSession({ ...session, activeTabId: activeInfo.tabId });
+    await setActiveTabId(activeInfo.tabId);
+    
+    // Ensure content script is ready and state is updated
+    await ensureContentScript(activeInfo.tabId);
+    try {
+      await chrome.tabs.sendMessage(activeInfo.tabId, {
+        type: 'STATE_UPDATE',
+        isRecording: true,
+        stepCount: session.steps.length,
+        sessionId,
+      } satisfies StateUpdateMessage);
+    } catch {
+      // Ignore if tab isn't fully loaded yet
+    }
+  }
+});
+
+// Stop recording if all tracked tabs are closed
 chrome.tabs.onRemoved.addListener(async (tabId) => {
-  const activeTabId = await getActiveTabId();
-  if (tabId === activeTabId) {
-    await stopRecording();
+  const isRecording = await getIsRecording();
+  if (!isRecording) return;
+
+  const sessionId = await getActiveSessionId();
+  if (!sessionId) return;
+
+  const session = await getSession(sessionId);
+  if (!session || !session.trackedTabIds) return;
+
+  if (session.trackedTabIds.includes(tabId)) {
+    const updatedTracked = session.trackedTabIds.filter(id => id !== tabId);
+    if (updatedTracked.length === 0) {
+      await stopRecording();
+    } else {
+      await saveSession({ ...session, trackedTabIds: updatedTracked });
+    }
   }
 });
 

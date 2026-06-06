@@ -188,34 +188,39 @@ function showClickFlash(x: number, y: number): void {
     width: 48px;
     height: 48px;
     border-radius: 50%;
-    border: 3px solid #7c3aed;
-    box-shadow: 0 0 0 0 rgba(124, 58, 237, 0.6);
+    border: 2px solid rgba(37, 99, 235, 0.8);
+    box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.4);
     animation: autodoc-pulse 0.6s ease-out forwards;
     pointer-events: none;
     z-index: 2147483647;
   `;
   document.body.appendChild(flash);
 
-  // Also show a small camera icon badge
+  // Minimal capture tooltip
   const badge = document.createElement('div');
   badge.setAttribute('data-autodoc-overlay', 'true');
   badge.style.cssText = `
     position: fixed;
-    left: ${x + 18}px;
-    top: ${y - 36}px;
-    background: #7c3aed;
-    color: white;
+    left: ${x + 20}px;
+    top: ${y - 20}px;
+    background: #ffffff;
+    color: #0f172a;
+    border: 1px solid #e2e8f0;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
     border-radius: 6px;
-    padding: 2px 6px;
+    padding: 4px 8px;
     font-size: 11px;
     font-family: -apple-system, sans-serif;
-    font-weight: bold;
+    font-weight: 500;
     pointer-events: none;
     z-index: 2147483647;
     opacity: 1;
     transition: opacity 0.4s ease;
+    display: flex;
+    align-items: center;
+    gap: 4px;
   `;
-  badge.textContent = '📸';
+  badge.innerHTML = `<span style="color:#2563eb;font-weight:bold;">✓</span> Captured`;
   document.body.appendChild(badge);
 
   setTimeout(() => {
@@ -241,13 +246,13 @@ function updateRecordingIndicator(recording: boolean, stepCount: number): void {
     indicator.innerHTML = `
       <div style="display:flex;align-items:center;gap:6px;">
         <span style="
-          width:8px;height:8px;border-radius:50%;
+          width:6px;height:6px;border-radius:50%;
           background:#ef4444;
-          animation:autodoc-blink 1s infinite;
+          animation:autodoc-blink 1.5s infinite;
           display:inline-block;
         "></span>
-        <span style="font-size:11px;font-weight:600;letter-spacing:0.5px;">
-          REC · ${stepCount} step${stepCount !== 1 ? 's' : ''}
+        <span>
+          ${stepCount} step${stepCount !== 1 ? 's' : ''}
         </span>
       </div>
     `;
@@ -266,38 +271,37 @@ async function showDuplicatePrompt(similarity: number): Promise<boolean> {
     dialog.setAttribute('data-autodoc-overlay', 'true');
     dialog.style.cssText = `
       position: fixed;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      background: #1e1b4b;
-      color: white;
-      border-radius: 16px;
-      padding: 24px 28px;
+      top: 24px;
+      right: 24px;
+      background: #ffffff;
+      color: #0f172a;
+      border-radius: 8px;
+      padding: 16px;
       z-index: 2147483647;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      box-shadow: 0 20px 60px rgba(0,0,0,0.6);
-      border: 1px solid rgba(124,58,237,0.4);
-      max-width: 360px;
-      text-align: center;
+      box-shadow: 0 10px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1);
+      border: 1px solid #e2e8f0;
+      width: 280px;
     `;
     dialog.innerHTML = `
-      <div style="font-size:24px;margin-bottom:8px;">🔍</div>
-      <div style="font-weight:700;font-size:15px;margin-bottom:6px;">Similar Screenshot Detected</div>
-      <div style="font-size:12px;color:#a5b4fc;margin-bottom:20px;">
-        This step looks ${Math.round(similarity * 100)}% similar to the previous one. 
-        Skip the duplicate?
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+        <div style="font-size:16px;">🔍</div>
+        <div style="font-weight:600;font-size:14px;color:#0f172a;">Similar Screenshot</div>
       </div>
-      <div style="display:flex;gap:10px;justify-content:center;">
-        <button id="autodoc-dup-skip" style="
-          background:#7c3aed;color:white;border:none;
-          border-radius:8px;padding:8px 20px;
-          font-size:13px;font-weight:600;cursor:pointer;
-        ">Skip</button>
+      <div style="font-size:12px;color:#475569;margin-bottom:16px;line-height:1.4;">
+        This step looks ${Math.round(similarity * 100)}% similar to the previous one. Skip the duplicate?
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;">
         <button id="autodoc-dup-keep" style="
-          background:rgba(255,255,255,0.1);color:white;border:1px solid rgba(255,255,255,0.2);
-          border-radius:8px;padding:8px 20px;
-          font-size:13px;font-weight:600;cursor:pointer;
-        ">Keep Step</button>
+          background:#ffffff;color:#475569;border:1px solid #cbd5e1;
+          border-radius:6px;padding:6px 12px;
+          font-size:12px;font-weight:500;cursor:pointer;
+        ">Keep</button>
+        <button id="autodoc-dup-skip" style="
+          background:#2563eb;color:white;border:none;
+          border-radius:6px;padding:6px 12px;
+          font-size:12px;font-weight:500;cursor:pointer;
+        ">Skip</button>
       </div>
     `;
 

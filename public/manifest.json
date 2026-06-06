@@ -30,12 +30,14 @@
     }
   ],
   "permissions": [
-    "activeTab",
     "tabs",
     "storage",
     "unlimitedStorage",
     "scripting",
     "downloads"
+  ],
+  "host_permissions": [
+    "<all_urls>"
   ],
   "commands": {
     "toggle-recording": {

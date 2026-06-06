@@ -42,8 +42,8 @@ export async function annotateScreenshot(
           clickX,
           clickY,
           stepNumber,
-          ringColor = '#7c3aed',
-          badgeColor = '#7c3aed',
+          ringColor = '#2563eb', // Blue-600
+          badgeColor = '#1e293b', // Slate-800
           badgeTextColor = '#ffffff',
           ringRadius = 32,
         } = options;
@@ -62,10 +62,10 @@ export async function annotateScreenshot(
         drawGlowRing(ctx, scaledX, scaledY, ringRadius, ringColor);
 
         // Draw arrow pointing to click location
-        const badgeY = scaledY - ringRadius - 60;
-        const clampedBadgeY = Math.max(80, badgeY);
+        const badgeY = scaledY - ringRadius - 40;
+        const clampedBadgeY = Math.max(50, badgeY);
         const arrowTip = { x: scaledX, y: scaledY - ringRadius - 4 };
-        const arrowBase = { x: scaledX, y: clampedBadgeY + 36 };
+        const arrowBase = { x: scaledX, y: clampedBadgeY + 20 };
 
         if (arrowBase.y < arrowTip.y) {
           drawArrow(ctx, arrowBase, arrowTip, ringColor);
@@ -101,19 +101,19 @@ function drawFocusOverlay(
 ): void {
   // Semi-transparent overlay over the whole canvas
   ctx.save();
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.18)';
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.06)';
   ctx.fillRect(0, 0, width, height);
 
   // Clear a circle around the click point to "spotlight" it
   const gradient = ctx.createRadialGradient(x, y, 0, x, y, radius * 2.5);
-  gradient.addColorStop(0, 'rgba(0,0,0,0.18)');
-  gradient.addColorStop(0.6, 'rgba(0,0,0,0.18)');
+  gradient.addColorStop(0, 'rgba(0,0,0,0.06)');
+  gradient.addColorStop(0.6, 'rgba(0,0,0,0.06)');
   gradient.addColorStop(1, 'rgba(0,0,0,0)');
 
   ctx.globalCompositeOperation = 'destination-out';
   ctx.beginPath();
   ctx.arc(x, y, radius * 2.5, 0, Math.PI * 2);
-  ctx.fillStyle = 'rgba(0,0,0,0.18)';
+  ctx.fillStyle = 'rgba(0,0,0,0.06)';
   ctx.fill();
   ctx.globalCompositeOperation = 'source-over';
   ctx.restore();
@@ -131,32 +131,19 @@ function drawGlowRing(
 ): void {
   ctx.save();
 
-  // Outer glow (diffuse)
+  // Soft outer glow (thin and low opacity)
   ctx.beginPath();
-  ctx.arc(x, y, radius + 16, 0, Math.PI * 2);
-  ctx.strokeStyle = hexToRgba(color, 0.2);
-  ctx.lineWidth = 20;
+  ctx.arc(x, y, radius + 4, 0, Math.PI * 2);
+  ctx.strokeStyle = hexToRgba(color, 0.15);
+  ctx.lineWidth = 6;
   ctx.stroke();
 
-  // Mid glow
-  ctx.beginPath();
-  ctx.arc(x, y, radius + 6, 0, Math.PI * 2);
-  ctx.strokeStyle = hexToRgba(color, 0.4);
-  ctx.lineWidth = 8;
-  ctx.stroke();
-
-  // Inner crisp ring
+  // Thin crisp outline
   ctx.beginPath();
   ctx.arc(x, y, radius, 0, Math.PI * 2);
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 3.5;
+  ctx.strokeStyle = hexToRgba(color, 0.8);
+  ctx.lineWidth = 2;
   ctx.stroke();
-
-  // Center dot
-  ctx.beginPath();
-  ctx.arc(x, y, 5, 0, Math.PI * 2);
-  ctx.fillStyle = color;
-  ctx.fill();
 
   ctx.restore();
 }
@@ -171,9 +158,9 @@ function drawArrow(
   color: string
 ): void {
   ctx.save();
-  ctx.strokeStyle = color;
-  ctx.fillStyle = color;
-  ctx.lineWidth = 3;
+  ctx.strokeStyle = hexToRgba(color, 0.8);
+  ctx.fillStyle = hexToRgba(color, 0.8);
+  ctx.lineWidth = 2;
   ctx.lineCap = 'round';
 
   // Arrow shaft
@@ -215,11 +202,11 @@ function drawStepBadge(
   ctx.save();
 
   const label = `STEP ${stepNumber}`;
-  const fontSize = 20;
-  const padding = { x: 20, y: 10 };
-  const cornerRadius = 14;
+  const fontSize = 12;
+  const padding = { x: 10, y: 6 };
+  const cornerRadius = 6;
 
-  ctx.font = `bold ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+  ctx.font = `500 ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
   const textWidth = ctx.measureText(label).width;
   const badgeWidth = textWidth + padding.x * 2;
   const badgeHeight = fontSize + padding.y * 2;
@@ -227,30 +214,31 @@ function drawStepBadge(
   const bx = x - badgeWidth / 2;
   const by = y - badgeHeight / 2;
 
-  // Drop shadow
-  ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
-  ctx.shadowBlur = 12;
+  // Very subtle drop shadow
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.08)';
+  ctx.shadowBlur = 4;
   ctx.shadowOffsetX = 0;
-  ctx.shadowOffsetY = 4;
+  ctx.shadowOffsetY = 2;
 
   // Badge background (rounded pill)
   roundRect(ctx, bx, by, badgeWidth, badgeHeight, cornerRadius);
-  ctx.fillStyle = bgColor;
+  ctx.fillStyle = badgeColor;
   ctx.fill();
 
-  // White border
+  // Subtle border
   ctx.shadowBlur = 0;
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
-  ctx.lineWidth = 2;
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+  ctx.lineWidth = 1;
   ctx.stroke();
 
   // Badge text
-  ctx.fillStyle = textColor;
+  ctx.fillStyle = badgeTextColor;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.font = `bold ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+  ctx.font = `500 ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
   ctx.shadowBlur = 0;
-  ctx.fillText(label, x, y);
+  // Adjust vertical alignment slightly for standard sans-serif
+  ctx.fillText(label, x, y + 1);
 
   ctx.restore();
 }

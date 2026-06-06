@@ -63,6 +63,8 @@ export interface Session {
   isRecording: boolean;
   /** The tab ID this session is recording on */
   activeTabId?: number;
+  /** IDs of all tabs belonging to this recording flow */
+  trackedTabIds?: number[];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
