@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AutoDoc</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <div class="popup-container">
+    <!-- Header -->
+    <header class="popup-header">
+      <div class="logo">
+        <div class="logo-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+            <circle cx="12" cy="12" r="4" fill="white"/>
+            <path d="M9 2L7.5 4H4a1 1 0 00-1 1v14a1 1 0 001 1h16a1 1 0 001-1V5a1 1 0 00-1-1h-3.5L15 2H9z" stroke="white" stroke-width="1.5" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <span class="logo-text">AutoDoc</span>
+      </div>
+      <div class="status-badge" id="status-badge">
+        <span class="status-dot" id="status-dot"></span>
+        <span id="status-text">Idle</span>
+      </div>
+    </header>
+
+    <!-- Step Counter -->
+    <div class="step-counter" id="step-counter">
+      <div class="counter-number" id="step-count">0</div>
+      <div class="counter-label">Steps Captured</div>
+    </div>
+
+    <!-- Session Name -->
+    <div class="session-info" id="session-info" style="display:none">
+      <span class="session-icon">📋</span>
+      <span class="session-name" id="session-name-display"></span>
+    </div>
+
+    <!-- Primary CTA Button -->
+    <button class="btn btn-primary" id="btn-toggle-recording">
+      <span class="btn-icon" id="record-icon">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+          <circle cx="12" cy="12" r="8"/>
+        </svg>
+      </span>
+      <span id="btn-record-text">Start Recording</span>
+    </button>
+
+    <!-- Secondary Actions -->
+    <div class="action-row">
+      <button class="btn btn-secondary" id="btn-view-docs">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+          <polyline points="14 2 14 8 20 8"/>
+          <line x1="16" y1="13" x2="8" y2="13"/>
+          <line x1="16" y1="17" x2="8" y2="17"/>
+        </svg>
+        View Docs
+      </button>
+      <button class="btn btn-secondary" id="btn-export-pdf" disabled>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+          <polyline points="7 10 12 15 17 10"/>
+          <line x1="12" y1="15" x2="12" y2="3"/>
+        </svg>
+        Export PDF
+      </button>
+    </div>
+
+    <!-- Keyboard Shortcuts hint -->
+    <div class="shortcuts-hint">
+      <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>R</kbd> to toggle · <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>E</kbd> to export
+    </div>
+  </div>
+
+  <script src="popup.js" type="module"></script>
+</body>
+</html>

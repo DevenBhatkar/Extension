@@ -1,0 +1,20 @@
+{
+  "name": "autodoc-extension",
+  "version": "1.0.0",
+  "description": "AutoDoc - Click-to-Documentation Generator Chrome Extension",
+  "scripts": {
+    "dev": "vite build --watch",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.268",
+    "@types/sortablejs": "^1.15.8",
+    "typescript": "^5.3.3",
+    "vite": "^5.1.0"
+  },
+  "dependencies": {
+    "jspdf": "^2.5.1",
+    "sortablejs": "^1.15.2"
+  }
+}
