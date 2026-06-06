@@ -9,6 +9,7 @@
  */
 
 import { jsPDF } from 'jspdf';
+import JSZip from 'jszip';
 import type { Session, Step } from './types';
 import { formatDate } from './storage';
 
@@ -398,15 +399,22 @@ ${stepsHtml}
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Download All Screenshots
+// Download All Screenshots (ZIP)
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Download each step's annotated screenshot as an individual PNG file.
- * Files are named Step-1.png, Step-2.png, etc.
- * Downloads are staggered 120ms apart to prevent the browser from blocking them.
+ * Package every screenshot in the session into a single ZIP file and
+ * download it as "Report-Screenshots.zip".
+ *
+ * - Iterates ALL steps in the session in order — never depends on the
+ *   currently selected/previewed step in the editor.
+ * - Notes (isNote === true) are skipped since they have no screenshot.
+ * - Files are named Step-001.png, Step-002.png, … (zero-padded to 3 digits).
+ * - Uses the annotated screenshot (screenshotDataUrl) when available;
+ *   falls back to the raw capture (rawScreenshotDataUrl).
  */
 export async function downloadAllScreenshots(session: Session): Promise<void> {
+  // Collect every step that has a screenshot, in their natural order
   const screenshotSteps = session.steps.filter(
     (s) => !s.isNote && (s.screenshotDataUrl || s.rawScreenshotDataUrl)
   );
@@ -415,25 +423,38 @@ export async function downloadAllScreenshots(session: Session): Promise<void> {
     throw new Error('No screenshots to download.');
   }
 
-  return new Promise((resolve) => {
-    screenshotSteps.forEach((step, index) => {
-      setTimeout(() => {
-        const dataUrl = step.screenshotDataUrl || step.rawScreenshotDataUrl;
-        const a = document.createElement('a');
-        a.href = dataUrl;
-        a.download = `Step-${step.stepNumber}.png`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
+  const zip = new JSZip();
 
-        // Resolve after the last download is triggered
-        if (index === screenshotSteps.length - 1) {
-          // Small extra delay to let the last download initialise
-          setTimeout(resolve, 300);
-        }
-      }, index * 120);
-    });
-  });
+  // Helper: convert a base64 data URL to a Uint8Array
+  function dataUrlToUint8Array(dataUrl: string): Uint8Array {
+    const base64 = dataUrl.split(',')[1];
+    if (!base64) throw new Error('Invalid data URL');
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes;
+  }
+
+  // Add each screenshot to the ZIP in step order
+  for (const step of screenshotSteps) {
+    const dataUrl = (step.screenshotDataUrl || step.rawScreenshotDataUrl) as string;
+    const paddedNumber = String(step.stepNumber).padStart(3, '0');
+    const filename = `Step-${paddedNumber}.png`;
+    zip.file(filename, dataUrlToUint8Array(dataUrl));
+  }
+
+  // Generate the ZIP blob and trigger a single download
+  const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'Report-Screenshots.zip';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
