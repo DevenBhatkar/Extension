@@ -29,6 +29,7 @@ import type {
   CaptureStepMessage,
   Step,
   Session,
+  SessionMetadata,
   StateUpdateMessage,
 } from '../lib/types';
 
@@ -55,7 +56,7 @@ async function handleMessage(
 ): Promise<unknown> {
   switch (message.type) {
     case 'START_RECORDING':
-      return startRecording(message.sessionName, message.tabId ?? sender.tab?.id);
+      return startRecording(message.sessionName, message.tabId ?? sender.tab?.id, message.featureName, message.environmentType);
 
     case 'STOP_RECORDING':
       return stopRecording();
@@ -88,7 +89,9 @@ const BROWSER_SESSION_KEY = 'autodoc_new_browser_session';
 
 async function startRecording(
   sessionName?: string,
-  tabId?: number
+  tabId?: number,
+  featureName?: string,
+  environmentType?: 'Pre Deployment' | 'Post Deployment'
 ): Promise<{ ok: boolean; sessionId: string }> {
   // Always clear the previous session's data before starting a new recording.
   // This ensures the user can review / re-export their last report until they
@@ -101,7 +104,14 @@ async function startRecording(
 
   const targetTabId = tabId ?? (await getCurrentTabId());
   const id = generateId();
-  const name = sessionName ?? generateSessionName();
+  const name = sessionName ?? featureName ?? generateSessionName();
+
+  // Build session metadata from the setup dialog
+  const todayISO = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+  const metadata: SessionMetadata | undefined =
+    featureName && environmentType
+      ? { featureName, environmentType, recordingDate: todayISO }
+      : undefined;
 
   const newSession: Session = {
     id,
@@ -112,6 +122,7 @@ async function startRecording(
     isRecording: true,
     activeTabId: targetTabId,
     trackedTabIds: targetTabId ? [targetTabId] : [],
+    metadata,
   };
 
   await saveSession(newSession);

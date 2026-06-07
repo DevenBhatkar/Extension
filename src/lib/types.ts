@@ -47,6 +47,16 @@ export interface Step {
   viewportHeight?: number;
 }
 
+/** Session-level metadata collected before recording starts */
+export interface SessionMetadata {
+  /** The feature being documented, e.g. "Certificate of Editing" */
+  featureName: string;
+  /** Deployment stage */
+  environmentType: 'Pre Deployment' | 'Post Deployment';
+  /** ISO date string (YYYY-MM-DD) when the recording was started */
+  recordingDate: string;
+}
+
 /** A recording session containing multiple steps */
 export interface Session {
   /** Unique session identifier */
@@ -65,6 +75,8 @@ export interface Session {
   activeTabId?: number;
   /** IDs of all tabs belonging to this recording flow */
   trackedTabIds?: number[];
+  /** Metadata collected from the pre-recording setup dialog */
+  metadata?: SessionMetadata;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -91,6 +103,10 @@ export interface StartRecordingMessage extends BaseMessage {
   type: 'START_RECORDING';
   sessionName?: string;
   tabId?: number;
+  /** Feature name from the setup dialog */
+  featureName?: string;
+  /** Environment type from the setup dialog */
+  environmentType?: 'Pre Deployment' | 'Post Deployment';
 }
 
 export interface StopRecordingMessage extends BaseMessage {

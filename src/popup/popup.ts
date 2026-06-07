@@ -22,6 +22,15 @@ const btnRecordText = document.getElementById('btn-record-text') as HTMLElement;
 const sessionInfo = document.getElementById('session-info') as HTMLElement;
 const sessionNameDisplay = document.getElementById('session-name-display') as HTMLElement;
 
+// Setup modal elements
+const setupModalOverlay = document.getElementById('setup-modal-overlay') as HTMLElement;
+const featureNameInput = document.getElementById('feature-name-input') as HTMLInputElement;
+const featureNameError = document.getElementById('feature-name-error') as HTMLElement;
+const envTypeError = document.getElementById('env-type-error') as HTMLElement;
+const radioGroup = setupModalOverlay.querySelector('.radio-group') as HTMLElement;
+const setupCancel = document.getElementById('setup-cancel') as HTMLButtonElement;
+const setupConfirm = document.getElementById('setup-confirm') as HTMLButtonElement;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // State
 // ─────────────────────────────────────────────────────────────────────────────
@@ -123,27 +132,104 @@ function animateStepCount(count: number) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 btnToggle.addEventListener('click', async () => {
-  btnToggle.disabled = true;
-
-  try {
-    if (isRecording) {
+  if (isRecording) {
+    // Stop recording immediately — no modal needed
+    btnToggle.disabled = true;
+    try {
       await chrome.runtime.sendMessage({ type: 'STOP_RECORDING' });
       updateUI(false, stepCount, activeSessionId);
-    } else {
-      const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      const result = await chrome.runtime.sendMessage({
-        type: 'START_RECORDING',
-        tabId: activeTab?.id,
-      });
-      if (result?.ok) {
-        updateUI(true, 0, result.sessionId);
-      }
+    } catch (err) {
+      console.error('[AutoDoc Popup] Stop error:', err);
+    } finally {
+      btnToggle.disabled = false;
+    }
+  } else {
+    // Show the setup modal instead of starting immediately
+    openSetupModal();
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Setup Modal Logic
+// ─────────────────────────────────────────────────────────────────────────────
+
+function openSetupModal() {
+  // Reset form
+  featureNameInput.value = '';
+  (document.querySelectorAll('input[name="env-type"]') as NodeListOf<HTMLInputElement>)
+    .forEach(r => (r.checked = false));
+  clearValidationErrors();
+  setupModalOverlay.classList.add('visible');
+  featureNameInput.focus();
+}
+
+function closeSetupModal() {
+  setupModalOverlay.classList.remove('visible');
+  clearValidationErrors();
+}
+
+function clearValidationErrors() {
+  featureNameInput.classList.remove('error');
+  featureNameError.classList.remove('visible');
+  envTypeError.classList.remove('visible');
+  radioGroup.classList.remove('error');
+}
+
+function getSelectedEnvType(): string | null {
+  const selected = document.querySelector('input[name="env-type"]:checked') as HTMLInputElement | null;
+  return selected?.value ?? null;
+}
+
+async function handleSetupConfirm() {
+  clearValidationErrors();
+  let valid = true;
+
+  const featureName = featureNameInput.value.trim();
+  if (!featureName) {
+    featureNameInput.classList.add('error');
+    featureNameError.classList.add('visible');
+    valid = false;
+  }
+
+  const envType = getSelectedEnvType();
+  if (!envType) {
+    envTypeError.classList.add('visible');
+    radioGroup.classList.add('error');
+    valid = false;
+  }
+
+  if (!valid) return;
+
+  // Start recording with metadata
+  setupConfirm.disabled = true;
+  try {
+    const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const result = await chrome.runtime.sendMessage({
+      type: 'START_RECORDING',
+      tabId: activeTab?.id,
+      featureName,
+      environmentType: envType,
+    });
+    if (result?.ok) {
+      closeSetupModal();
+      updateUI(true, 0, result.sessionId);
     }
   } catch (err) {
-    console.error('[AutoDoc Popup] Toggle error:', err);
+    console.error('[AutoDoc Popup] Start error:', err);
   } finally {
-    btnToggle.disabled = false;
+    setupConfirm.disabled = false;
   }
+}
+
+// Modal event listeners
+setupCancel.addEventListener('click', closeSetupModal);
+setupConfirm.addEventListener('click', handleSetupConfirm);
+setupModalOverlay.addEventListener('click', (e) => {
+  if (e.target === setupModalOverlay) closeSetupModal();
+});
+// Enter key submits the modal
+featureNameInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') handleSetupConfirm();
 });
 
 btnViewDocs.addEventListener('click', async () => {

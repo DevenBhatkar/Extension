@@ -10,7 +10,7 @@
 
 import { jsPDF } from 'jspdf';
 import JSZip from 'jszip';
-import type { Session, Step } from './types';
+import type { Session, Step, SessionMetadata } from './types';
 import { formatDate } from './storage';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -56,7 +56,7 @@ export async function exportSessionAsPdf(session: Session): Promise<void> {
   addPageNumbers(doc, session.steps.length);
 
   // Download
-  const filename = sanitizeFilename(session.name) + '.pdf';
+  const filename = buildExportFilename(session) + '.pdf';
   doc.save(filename);
 }
 
@@ -113,8 +113,60 @@ function drawCoverPage(doc: jsPDF, session: Session): void {
   const sessionLabel = wrapText(doc, session.name, CONTENT_W - 20, 16);
   doc.text(sessionLabel, PAGE_W / 2, 133, { align: 'center' });
 
+  // ── Metadata block (if available) ──────────────────────
+  let metaY = 148;
+  if (session.metadata) {
+    const m = session.metadata;
+    metaY = 146;
+
+    doc.setFillColor(255, 255, 255);
+    roundedRectPDF(doc, MARGIN + 20, metaY, CONTENT_W - 40, 32, 4);
+    doc.setDrawColor(230, 225, 255);
+    doc.setLineWidth(0.3);
+    roundedRectStrokePDF(doc, MARGIN + 20, metaY, CONTENT_W - 40, 32, 4);
+
+    // Left accent bar
+    doc.setFillColor(...BRAND_PURPLE_LIGHT);
+    doc.rect(MARGIN + 20, metaY, 2, 32, 'F');
+
+    const labelX = MARGIN + 28;
+    const valX = MARGIN + 68;
+    let rowY = metaY + 9;
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.setTextColor(...TEXT_GREY);
+    doc.text('Feature:', labelX, rowY);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.setTextColor(...TEXT_DARK);
+    doc.text(m.featureName, valX, rowY);
+
+    rowY += 8;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.setTextColor(...TEXT_GREY);
+    doc.text('Environment:', labelX, rowY);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.setTextColor(...TEXT_DARK);
+    doc.text(m.environmentType, valX, rowY);
+
+    rowY += 8;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.setTextColor(...TEXT_GREY);
+    doc.text('Generated On:', labelX, rowY);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.setTextColor(...TEXT_DARK);
+    doc.text(m.recordingDate, valX, rowY);
+
+    metaY += 38;
+  }
+
   // Stats box
-  const statsY = 158;
+  const statsY = metaY + 2;
   doc.setFillColor(255, 255, 255);
   roundedRectPDF(doc, MARGIN + 20, statsY, CONTENT_W - 40, 36, 4);
   doc.setDrawColor(230, 225, 255);
@@ -362,6 +414,10 @@ export function exportSessionAsHtml(session: Session): void {
   .cover-title { font-size: 36px; font-weight: 800; margin-bottom: 12px; }
   .cover-subtitle { font-size: 20px; opacity: 0.8; margin-bottom: 8px; }
   .cover-meta { font-size: 13px; opacity: 0.6; margin-top: 20px; }
+  .cover-metadata { display: inline-flex; flex-direction: column; gap: 6px; margin-top: 16px; background: rgba(255,255,255,0.1); border-radius: 10px; padding: 14px 24px; text-align: left; font-size: 13px; }
+  .cover-metadata-row { display: flex; gap: 8px; }
+  .cover-metadata-label { opacity: 0.6; font-weight: 600; min-width: 110px; }
+  .cover-metadata-value { font-weight: 500; }
   .steps { max-width: 900px; margin: 0 auto; padding: 40px 20px; display: flex; flex-direction: column; gap: 40px; }
   .step { background: white; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 20px rgba(124,58,237,0.08); border: 1px solid rgba(124,58,237,0.1); }
   .step-header { display: flex; align-items: center; gap: 12px; padding: 16px 20px; border-bottom: 1px solid #f0eeff; }
@@ -379,6 +435,11 @@ export function exportSessionAsHtml(session: Session): void {
   <div class="cover-title">Process Documentation</div>
   <div class="cover-subtitle">${escapeHtml(session.name)}</div>
   <div class="cover-meta">${session.steps.length} steps · Generated ${formatDate(session.createdAt)}</div>
+  ${session.metadata ? `<div class="cover-metadata">
+    <div class="cover-metadata-row"><span class="cover-metadata-label">Feature Name:</span><span class="cover-metadata-value">${escapeHtml(session.metadata.featureName)}</span></div>
+    <div class="cover-metadata-row"><span class="cover-metadata-label">Environment:</span><span class="cover-metadata-value">${escapeHtml(session.metadata.environmentType)}</span></div>
+    <div class="cover-metadata-row"><span class="cover-metadata-label">Generated On:</span><span class="cover-metadata-value">${escapeHtml(session.metadata.recordingDate)}</span></div>
+  </div>` : ''}
 </div>
 <div class="steps">
 ${stepsHtml}
@@ -391,7 +452,7 @@ ${stepsHtml}
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = sanitizeFilename(session.name) + '.html';
+  a.download = buildExportFilename(session) + '.html';
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
@@ -438,10 +499,13 @@ export async function downloadAllScreenshots(session: Session): Promise<void> {
   }
 
   // Add each screenshot to the ZIP in step order
+  const namePrefix = session.metadata ? buildMetadataPrefix(session.metadata) : null;
   for (const step of screenshotSteps) {
     const dataUrl = (step.screenshotDataUrl || step.rawScreenshotDataUrl) as string;
     const paddedNumber = String(step.stepNumber).padStart(3, '0');
-    const filename = `Step-${paddedNumber}.png`;
+    const filename = namePrefix
+      ? `${namePrefix}_Step-${paddedNumber}.png`
+      : `Step-${paddedNumber}.png`;
     zip.file(filename, dataUrlToUint8Array(dataUrl));
   }
 
@@ -450,7 +514,7 @@ export async function downloadAllScreenshots(session: Session): Promise<void> {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = 'Report-Screenshots.zip';
+  a.download = buildExportFilename(session) + '.zip';
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
@@ -463,6 +527,28 @@ export async function downloadAllScreenshots(session: Session): Promise<void> {
 
 function sanitizeFilename(name: string): string {
   return name.replace(/[^a-z0-9\-_\s]/gi, '').trim().replace(/\s+/g, '-') || 'autodoc-export';
+}
+
+/**
+ * Build a file-name-safe prefix from session metadata.
+ * e.g. "Certificate of Editing" + "Pre Deployment" → "Certificate-of-Editing_Pre-Deployment"
+ */
+function buildMetadataPrefix(metadata: SessionMetadata): string {
+  const feature = metadata.featureName.trim().replace(/\s+/g, '-');
+  const env = metadata.environmentType.replace(/\s+/g, '-');
+  return sanitizeFilename(`${feature}_${env}`);
+}
+
+/**
+ * Build the full export filename (without extension).
+ * Uses metadata when available, otherwise falls back to session name.
+ * e.g. "Certificate-of-Editing_Pre-Deployment_2026-06-07"
+ */
+function buildExportFilename(session: Session): string {
+  if (session.metadata) {
+    return `${buildMetadataPrefix(session.metadata)}_${session.metadata.recordingDate}`;
+  }
+  return sanitizeFilename(session.name);
 }
 
 function escapeHtml(text: string): string {

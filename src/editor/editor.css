@@ -141,6 +141,42 @@ html, body {
   outline: 1px solid rgba(124, 58, 237, 0.4);
 }
 
+/* Topbar Metadata Tags */
+.topbar-metadata {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 4px;
+  flex-shrink: 0;
+}
+
+.topbar-meta-tag {
+  background: rgba(124, 58, 237, 0.12);
+  color: var(--purple-light);
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  white-space: nowrap;
+}
+
+.topbar-meta-tag.env {
+  background: rgba(16, 185, 129, 0.12);
+  color: var(--success);
+}
+
+.topbar-meta-sep {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.topbar-meta-date {
+  font-size: 10px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
 .step-counter-badge {
   background: var(--bg-elevated);
   border: 1px solid var(--border-strong);

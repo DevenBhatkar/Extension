@@ -77,6 +77,12 @@ const exportLoadingText = document.getElementById('export-loading-text') as HTML
 // Toast
 const toastEl = document.getElementById('toast') as HTMLElement;
 
+// Metadata bar
+const topbarMetadata = document.getElementById('topbar-metadata') as HTMLElement;
+const topbarMetaFeature = document.getElementById('topbar-meta-feature') as HTMLElement;
+const topbarMetaEnv = document.getElementById('topbar-meta-env') as HTMLElement;
+const topbarMetaDate = document.getElementById('topbar-meta-date') as HTMLElement;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // State
 // ─────────────────────────────────────────────────────────────────────────────
@@ -224,6 +230,16 @@ function renderAll() {
   document.title = `${session.name} — AutoDoc`;
   sessionNameInput.value = session.name;
   totalStepsEl.textContent = String(session.steps.length);
+
+  // Show metadata tags in the topbar
+  if (session.metadata) {
+    topbarMetaFeature.textContent = session.metadata.featureName;
+    topbarMetaEnv.textContent = session.metadata.environmentType;
+    topbarMetaDate.textContent = session.metadata.recordingDate;
+    topbarMetadata.style.display = 'flex';
+  } else {
+    topbarMetadata.style.display = 'none';
+  }
 
   const hasSteps = session.steps.length > 0;
   emptyState.style.display = hasSteps ? 'none' : 'flex';
