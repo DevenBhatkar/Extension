@@ -1,0 +1,64 @@
+{
+  "manifest_version": 3,
+  "name": "AutoDoc - Click-to-Documentation Generator",
+  "version": "1.0.0",
+  "description": "Automatically generate step-by-step documentation while you interact with any website. Capture screenshots, annotate them, and export as professional PDF.",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    },
+    "default_title": "AutoDoc"
+  },
+  "background": {
+    "service_worker": "background/service-worker.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content/content-script.js"],
+      "css": ["content/content-styles.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "permissions": [
+    "tabs",
+    "storage",
+    "unlimitedStorage",
+    "scripting",
+    "downloads"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "commands": {
+    "toggle-recording": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+R",
+        "mac": "Command+Shift+R"
+      },
+      "description": "Start or Stop Recording"
+    },
+    "export-pdf": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+E",
+        "mac": "Command+Shift+E"
+      },
+      "description": "Export documentation as PDF"
+    }
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["editor/editor.html", "icons/*"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}
