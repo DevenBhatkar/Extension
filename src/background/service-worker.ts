@@ -71,8 +71,7 @@ async function handleMessage(
       return { ok: true };
 
     case 'CLEAR_SESSION_DATA':
-      await clearAllData();
-      console.log('[AutoDoc SW] Session data cleared after export.');
+      // Kept for backward compatibility but cleanup now happens in startRecording.
       return { ok: true };
 
     default:
@@ -91,16 +90,14 @@ async function startRecording(
   sessionName?: string,
   tabId?: number
 ): Promise<{ ok: boolean; sessionId: string }> {
-  // If this is the first recording after a browser restart, clear all leftover
-  // data from previous sessions before starting fresh.
-  // We do this HERE (not in onStartup) to avoid a race condition where
-  // clearAllData() could wipe a session that was just saved.
-  const browserSessionResult = await chrome.storage.session.get(BROWSER_SESSION_KEY);
-  if (browserSessionResult[BROWSER_SESSION_KEY]) {
-    await clearAllData();
-    await chrome.storage.session.remove(BROWSER_SESSION_KEY);
-    console.log('[AutoDoc SW] First recording of browser session: cleared leftover data.');
-  }
+  // Always clear the previous session's data before starting a new recording.
+  // This ensures the user can review / re-export their last report until they
+  // explicitly begin a new recording session.
+  await clearAllData();
+  // Also clear the browser-session marker (if any) so it doesn't trigger
+  // a redundant clear on a subsequent recording in the same browser session.
+  await chrome.storage.session.remove(BROWSER_SESSION_KEY).catch(() => {});
+  console.log('[AutoDoc SW] Previous session data cleared — starting fresh.');
 
   const targetTabId = tabId ?? (await getCurrentTabId());
   const id = generateId();
@@ -144,24 +141,27 @@ async function stopRecording(): Promise<{ ok: boolean }> {
 
   // Update the session's isRecording flag
   const sessionId = await getActiveSessionId();
+  let session: Awaited<ReturnType<typeof getSession>> = null;
   if (sessionId) {
-    const session = await getSession(sessionId);
+    session = await getSession(sessionId);
     if (session) {
       await saveSession({ ...session, isRecording: false, updatedAt: Date.now() });
     }
   }
 
-  // Notify the content script
-  if (tabId) {
+  // Notify ALL tracked tabs (not just the active one) so every content script
+  // clears its recording state and stops showing the capture indicator.
+  const trackedTabIds = session?.trackedTabIds ?? (tabId ? [tabId] : []);
+  for (const tid of trackedTabIds) {
     try {
-      await chrome.tabs.sendMessage(tabId, {
+      await chrome.tabs.sendMessage(tid, {
         type: 'STATE_UPDATE',
         isRecording: false,
         stepCount: 0,
         sessionId: null,
       } satisfies StateUpdateMessage);
     } catch {
-      // Tab may have been closed — ignore
+      // Tab may have been closed or navigated away — ignore
     }
   }
 

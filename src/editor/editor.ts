@@ -15,7 +15,6 @@ import Sortable from 'sortablejs';
 import {
   getSession,
   saveSession,
-  deleteSession,
   generateId,
   formatDate,
 } from '../lib/storage';
@@ -524,27 +523,6 @@ function scheduleSave() {
 // Export Handlers
 // ─────────────────────────────────────────────────────────────────────────────
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Post-Export Cleanup
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * After any successful export:
- *  1. Show a success toast.
- *  2. Ask the service worker to wipe all session data.
- *  3. Close this editor tab after a short delay so the user sees the toast.
- */
-async function clearAndClose(successMessage: string): Promise<void> {
-  showToast(successMessage + ' — Clearing session data...', 4000);
-  try {
-    await chrome.runtime.sendMessage({ type: 'CLEAR_SESSION_DATA' });
-  } catch (err) {
-    console.warn('[AutoDoc Editor] Could not send CLEAR_SESSION_DATA:', err);
-  }
-  // Wait briefly so the toast is readable, then close the tab
-  setTimeout(() => window.close(), 3000);
-}
-
 async function handleExportPdf() {
   if (!session || session.steps.length === 0) {
     showToast('No steps to export');
@@ -556,12 +534,12 @@ async function handleExportPdf() {
   btnExportPdf.disabled = true;
   try {
     await exportSessionAsPdf(session);
-    await clearAndClose('PDF exported successfully! 🎉');
+    showToast('PDF exported successfully! 🎉');
   } catch (err) {
     console.error('[AutoDoc Editor] PDF export failed:', err);
     showToast('PDF export failed. Please try again.');
-    btnExportPdf.disabled = false;
   } finally {
+    btnExportPdf.disabled = false;
     exportLoading.style.display = 'none';
   }
 }
@@ -572,7 +550,7 @@ function handleExportHtml() {
     return;
   }
   exportSessionAsHtml(session);
-  clearAndClose('HTML exported successfully! 🌐').catch(console.error);
+  showToast('HTML exported successfully! 🌐');
 }
 
 async function handleDownloadScreenshots() {
@@ -586,12 +564,12 @@ async function handleDownloadScreenshots() {
   btnDownloadScreenshots.disabled = true;
   try {
     await downloadAllScreenshots(session);
-    await clearAndClose(`${session.steps.filter((s) => !s.isNote).length} screenshots downloaded! 🖼️`);
+    showToast(`${session.steps.filter((s) => !s.isNote).length} screenshots downloaded! 🖼️`);
   } catch (err) {
     console.error('[AutoDoc Editor] Screenshot download failed:', err);
     showToast('Download failed. Please try again.');
-    btnDownloadScreenshots.disabled = false;
   } finally {
+    btnDownloadScreenshots.disabled = false;
     exportLoading.style.display = 'none';
   }
 }

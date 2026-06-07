@@ -3,9 +3,13 @@
  *
  * Uses chrome.storage.local for data persistence during a session.
  * Data is treated as ephemeral — it is automatically cleaned up:
- *   - After any export (PDF, HTML, screenshots)
- *   - On extension startup or install (full wipe)
+ *   - When a new recording is started (clears previous session)
+ *   - On browser restart (first recording clears leftover data)
+ *   - On extension install/update (prunes sessions older than 24 hours)
  *   - 24-hour expiry as a safety net
+ *
+ * The latest completed report remains accessible until the user starts
+ * a new recording, allowing re-export and review after download.
  *
  * The extension holds `unlimitedStorage` permission so large screenshots
  * don't hit the default 10 MB quota.
@@ -148,8 +152,8 @@ export async function pruneExpiredSessions(): Promise<void> {
 
 /**
  * Wipe every AutoDoc key from storage.
- * Called automatically after PDF export, screenshot download, or HTML export,
- * and also on browser startup / extension install to start fresh.
+ * Called automatically when a new recording starts (to clear the previous
+ * session) and on browser startup to clean up leftover data.
  */
 export async function clearAllData(): Promise<void> {
   await chrome.storage.local.remove([
