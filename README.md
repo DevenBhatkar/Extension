@@ -21,14 +21,22 @@
 | 📝 **Text Notes** | Insert text-only note steps between any screenshots |
 | ✨ **Auto-description** | Generates step descriptions from the clicked element's text/tag |
 | ⌨️ **Keyboard Shortcuts** | `Ctrl+Shift+R` to toggle recording, `Ctrl+Shift+E` to export |
+| 📑 **Multi-tab Recording** | Track steps seamlessly across multiple browser tabs in one session |
+| 🏷️ **Session Metadata** | Name your sessions via a setup modal for organized file exports |
 | 🔒 **100% Local** | No cloud, no account, no data leaves your machine |
 
 ---
 
 ## Quick Start
 
-### 1. Install Dependencies & Build
+### 1. Get the Extension
 
+You can either use the pre-built extension or build it from source:
+
+**Option A: Use Pre-built**
+The repository includes a pre-built `dist/` folder, so you can skip the build step entirely.
+
+**Option B: Build from Source**
 ```bash
 cd ChromeEXtension
 npm install
@@ -200,7 +208,6 @@ After any change, go to `chrome://extensions` → find AutoDoc → click the **�
 5. **Step templates** — Pre-built templates for common workflows (login, checkout, etc.)
 6. **OCR descriptions** — Auto-describe steps by reading page text near the click point
 7. **Zoom annotations** — Magnified inset for small UI elements
-8. **Multi-tab recording** — Track steps across multiple browser tabs in one session
 
 ---
 
