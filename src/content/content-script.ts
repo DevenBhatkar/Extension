@@ -30,6 +30,12 @@ document.addEventListener(
     const target = event.target as HTMLElement;
     if (target.closest?.('[data-autodoc-overlay]')) return;
 
+    // SHIFT + Click → skip this step (no screenshot captured)
+    if (event.shiftKey) {
+      showSkippedToast(event.clientX, event.clientY);
+      return;
+    }
+
     isCapturing = true;
 
     const clickX = event.clientX;
@@ -228,6 +234,42 @@ function showClickFlash(x: number, y: number): void {
     badge.style.opacity = '0';
     setTimeout(() => badge.remove(), 400);
   }, 600);
+}
+
+/**
+ * Show a "Skipped" toast when ALT+click is used to bypass screenshot capture.
+ */
+function showSkippedToast(x: number, y: number): void {
+  const badge = document.createElement('div');
+  badge.setAttribute('data-autodoc-overlay', 'true');
+  badge.style.cssText = `
+    position: fixed;
+    left: ${x + 20}px;
+    top: ${y - 20}px;
+    background: #fffbeb;
+    color: #92400e;
+    border: 1px solid #fde68a;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    border-radius: 6px;
+    padding: 4px 8px;
+    font-size: 11px;
+    font-family: -apple-system, sans-serif;
+    font-weight: 500;
+    pointer-events: none;
+    z-index: 2147483647;
+    opacity: 1;
+    transition: opacity 0.4s ease;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  `;
+  badge.innerHTML = `<span style="color:#d97706;font-weight:bold;">⏭</span> Skipped`;
+  document.body.appendChild(badge);
+
+  setTimeout(() => {
+    badge.style.opacity = '0';
+    setTimeout(() => badge.remove(), 400);
+  }, 800);
 }
 
 /**

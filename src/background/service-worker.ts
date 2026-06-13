@@ -213,28 +213,7 @@ async function captureStep(
   const stepNumber = session.steps.length + 1;
   const stepId = generateId();
 
-  // Check for duplicates (compare with the last screenshot)
-  if (settings.detectDuplicates && session.steps.length > 0) {
-    const lastStep = session.steps[session.steps.length - 1];
-    if (lastStep?.rawScreenshotDataUrl) {
-      // Send both raw screenshots to content script for comparison
-      // (Canvas APIs are available in content scripts, not service workers)
-      if (tabId) {
-        const similarityResult = await chrome.tabs.sendMessage(tabId, {
-          type: 'DUPLICATE_CHECK_RESULT',
-          rawDataUrl,
-          previousDataUrl: lastStep.rawScreenshotDataUrl,
-          threshold: settings.duplicateThreshold,
-        });
-
-        if (similarityResult?.isDuplicate) {
-          // Notify popup/editor of the duplicate prompt
-          console.log('[AutoDoc SW] Duplicate detected, prompting user...');
-          return { ok: false };
-        }
-      }
-    }
-  }
+  // Duplicate detection disabled — use ALT+click to skip unwanted steps instead.
 
   // Build the step object with the raw screenshot
   // The content script will annotate it and send back the annotated version

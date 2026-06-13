@@ -110,23 +110,6 @@ async function captureStep(message, tabId) {
   const settings = await getSettings();
   const stepNumber = session.steps.length + 1;
   const stepId = generateId();
-  if (settings.detectDuplicates && session.steps.length > 0) {
-    const lastStep = session.steps[session.steps.length - 1];
-    if (lastStep?.rawScreenshotDataUrl) {
-      if (tabId) {
-        const similarityResult = await chrome.tabs.sendMessage(tabId, {
-          type: "DUPLICATE_CHECK_RESULT",
-          rawDataUrl,
-          previousDataUrl: lastStep.rawScreenshotDataUrl,
-          threshold: settings.duplicateThreshold
-        });
-        if (similarityResult?.isDuplicate) {
-          console.log("[AutoDoc SW] Duplicate detected, prompting user...");
-          return { ok: false };
-        }
-      }
-    }
-  }
   const autoDescription = settings.autoDescription && message.elementText ? generateAutoDescription(message.elementTag, message.elementText, message.pageTitle) : "";
   const step = {
     id: stepId,
