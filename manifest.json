@@ -41,17 +41,9 @@
   ],
   "commands": {
     "toggle-recording": {
-      "suggested_key": {
-        "default": "Ctrl+Shift+R",
-        "mac": "Command+Shift+R"
-      },
       "description": "Start or Stop Recording"
     },
     "export-pdf": {
-      "suggested_key": {
-        "default": "Ctrl+Shift+E",
-        "mac": "Command+Shift+E"
-      },
       "description": "Export documentation as PDF"
     }
   },

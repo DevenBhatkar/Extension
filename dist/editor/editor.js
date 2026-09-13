@@ -1,6 +1,307 @@
-const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=["chunks/index.es-u2N9Z2hW.js","chunks/storage-LAwyUxjd.js","chunks/preload-helper-BkSzTOHT.js"])))=>i.map(i=>d[i]);
-import { l as formatDate, S as STORAGE_KEYS, i as getSession, s as saveSession, g as generateId } from "../chunks/storage-LAwyUxjd.js";
-import { _ as __vitePreload } from "../chunks/preload-helper-BkSzTOHT.js";
+const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=["chunks/index.es-Bvy_3mnP.js","chunks/storage-Cnx0Lbuu.js"])))=>i.map(i=>d[i]);
+import { k as formatDate, S as STORAGE_KEYS, g as getSession, b as generateId, s as saveSession } from "../chunks/storage-Cnx0Lbuu.js";
+const copy = (edits) => JSON.parse(JSON.stringify(edits));
+function rectangle(a2, b2) {
+  return { x: Math.min(a2.x, b2.x), y: Math.min(a2.y, b2.y), width: Math.abs(b2.x - a2.x), height: Math.abs(b2.y - a2.y) };
+}
+function hitMark(mark, point, tolerance) {
+  if (mark.kind === "highlight") {
+    const box = rectangle({ x: mark.x, y: mark.y }, { x: mark.endX, y: mark.endY });
+    return point.x >= box.x - tolerance && point.x <= box.x + box.width + tolerance && point.y >= box.y - tolerance && point.y <= box.y + box.height + tolerance;
+  }
+  const dx = mark.endX - mark.x, dy = mark.endY - mark.y;
+  const t2 = Math.max(0, Math.min(1, ((point.x - mark.x) * dx + (point.y - mark.y) * dy) / (dx * dx + dy * dy || 1)));
+  return Math.hypot(point.x - mark.x - t2 * dx, point.y - mark.y - t2 * dy) <= tolerance;
+}
+function drawMark(ctx, mark) {
+  ctx.save();
+  ctx.strokeStyle = "#2563eb";
+  ctx.fillStyle = "#2563eb";
+  ctx.lineWidth = 4;
+  ctx.lineCap = "round";
+  if (mark.kind === "highlight") {
+    const box = rectangle({ x: mark.x, y: mark.y }, { x: mark.endX, y: mark.endY });
+    ctx.fillStyle = "rgba(250, 204, 21, 0.28)";
+    ctx.fillRect(box.x, box.y, box.width, box.height);
+    ctx.strokeStyle = "#ca8a04";
+    ctx.strokeRect(box.x, box.y, box.width, box.height);
+  } else {
+    const angle = Math.atan2(mark.endY - mark.y, mark.endX - mark.x);
+    ctx.beginPath();
+    ctx.moveTo(mark.x, mark.y);
+    ctx.lineTo(mark.endX, mark.endY);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(mark.endX, mark.endY);
+    ctx.lineTo(mark.endX - 18 * Math.cos(angle - Math.PI / 6), mark.endY - 18 * Math.sin(angle - Math.PI / 6));
+    ctx.lineTo(mark.endX - 18 * Math.cos(angle + Math.PI / 6), mark.endY - 18 * Math.sin(angle + Math.PI / 6));
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.restore();
+}
+function renderImage(image, edits) {
+  const full = document.createElement("canvas");
+  full.width = image.naturalWidth;
+  full.height = image.naturalHeight;
+  const ctx = full.getContext("2d");
+  ctx.drawImage(image, 0, 0);
+  edits.marks.forEach((mark) => drawMark(ctx, mark));
+  if (!edits.crop) return full;
+  const crop = edits.crop;
+  const output = document.createElement("canvas");
+  output.width = Math.max(1, Math.round(crop.width));
+  output.height = Math.max(1, Math.round(crop.height));
+  output.getContext("2d").drawImage(full, crop.x, crop.y, crop.width, crop.height, 0, 0, output.width, output.height);
+  return output;
+}
+async function openImageEditor(step, save2) {
+  if (document.querySelector("#image-editor")) return;
+  const image = new Image();
+  await new Promise((resolve, reject) => {
+    image.onload = () => resolve();
+    image.onerror = () => reject(new Error("Could not load this screenshot."));
+    image.src = step.rawScreenshotDataUrl || step.screenshotDataUrl;
+  });
+  const width = image.naturalWidth, height = image.naturalHeight;
+  let edits = copy(step.imageEdits ?? { marks: [], crop: null });
+  if (!step.imageEdits && step.elementTag) {
+    const x2 = Math.max(0, Math.min(width, step.clickXPercent * width));
+    const y2 = Math.max(0, Math.min(height, step.clickYPercent * height));
+    edits.marks.push({ kind: "arrow", x: Math.max(0, x2 - 100), y: Math.max(0, y2 - 70), endX: x2, endY: y2 });
+  }
+  let tool = "move";
+  let selected = -1;
+  let drag = null;
+  const history = [];
+  let saving = false;
+  const dialog = document.createElement("dialog");
+  dialog.id = "image-editor";
+  dialog.setAttribute("aria-labelledby", "image-editor-title");
+  dialog.innerHTML = `
+    <h2 id="image-editor-title">Edit screenshot</h2>
+    <div class="image-tools" role="toolbar" aria-label="Image tools">
+      <button data-tool="move" aria-pressed="true">Move / resize</button>
+      <button data-tool="arrow" aria-pressed="false">Arrow</button>
+      <button data-tool="highlight" aria-pressed="false">Highlight</button>
+      <button data-tool="crop" aria-pressed="false">Crop</button>
+      <button id="image-delete">Delete selected</button>
+      <button id="image-undo">Undo edit</button>
+      <button id="image-uncrop">Remove crop</button>
+      <button id="image-reset">Reset to original</button>
+    </div>
+    <p id="image-instructions">Drag a mark to move it, or drag its endpoint handles to resize it. Arrow keys nudge a selected mark.</p>
+    <div class="image-canvas-wrap"><canvas tabindex="0" aria-label="Screenshot editing canvas"></canvas></div>
+    <p id="image-status" role="status" aria-live="polite"></p>
+    <div class="image-actions"><button id="image-cancel">Cancel</button><button id="image-save">Save changes</button></div>`;
+  document.body.appendChild(dialog);
+  const canvas = dialog.querySelector("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  const status = dialog.querySelector("#image-status");
+  const button = (id) => dialog.querySelector(`#image-${id}`);
+  const point = (event) => {
+    const bounds = canvas.getBoundingClientRect();
+    return {
+      x: Math.max(0, Math.min(width, (event.clientX - bounds.left) * width / bounds.width)),
+      y: Math.max(0, Math.min(height, (event.clientY - bounds.top) * height / bounds.height))
+    };
+  };
+  const remember = () => {
+    history.push(copy(edits));
+    if (history.length > 50) history.shift();
+  };
+  const draw = () => {
+    ctx.clearRect(0, 0, width, height);
+    ctx.drawImage(image, 0, 0);
+    edits.marks.forEach((mark2) => drawMark(ctx, mark2));
+    if (edits.crop) {
+      const c2 = edits.crop;
+      ctx.save();
+      ctx.fillStyle = "#0007";
+      ctx.beginPath();
+      ctx.rect(0, 0, width, height);
+      ctx.rect(c2.x, c2.y, c2.width, c2.height);
+      ctx.fill("evenodd");
+      ctx.strokeStyle = "#2563eb";
+      ctx.lineWidth = 3;
+      ctx.setLineDash([10, 8]);
+      ctx.strokeRect(c2.x, c2.y, c2.width, c2.height);
+      ctx.restore();
+    }
+    const mark = edits.marks[selected];
+    if (mark) {
+      ctx.save();
+      ctx.fillStyle = "white";
+      ctx.strokeStyle = "#0f172a";
+      ctx.lineWidth = 2;
+      for (const p2 of [{ x: mark.x, y: mark.y }, { x: mark.endX, y: mark.endY }]) {
+        ctx.beginPath();
+        ctx.arc(p2.x, p2.y, 8, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+    button("delete").disabled = selected < 0 || saving;
+    button("undo").disabled = history.length === 0 || saving;
+    button("uncrop").disabled = !edits.crop || saving;
+  };
+  dialog.querySelectorAll("[data-tool]").forEach((el) => el.addEventListener("click", () => {
+    tool = el.dataset.tool;
+    dialog.querySelectorAll("[data-tool]").forEach((other) => other.setAttribute("aria-pressed", String(other === el)));
+    dialog.querySelector("#image-instructions").textContent = tool === "move" ? "Drag a mark to move it, or drag its endpoint handles to resize it. Arrow keys nudge a selected mark." : `Drag on the screenshot to ${tool === "crop" ? "select the area to keep" : `draw an ${tool === "arrow" ? "arrow" : "area highlight"}`}.`;
+  }));
+  canvas.addEventListener("pointerdown", (event) => {
+    if (saving || event.button !== 0) return;
+    event.preventDefault();
+    canvas.focus();
+    canvas.setPointerCapture(event.pointerId);
+    const p2 = point(event), before = copy(edits);
+    let endpoint = null;
+    if (tool === "move") {
+      const tolerance = 12 * width / canvas.getBoundingClientRect().width;
+      const current = edits.marks[selected];
+      if (current && Math.hypot(p2.x - current.x, p2.y - current.y) < tolerance) endpoint = "start";
+      else if (current && Math.hypot(p2.x - current.endX, p2.y - current.endY) < tolerance) endpoint = "end";
+      else {
+        selected = -1;
+        for (let i2 = edits.marks.length - 1; i2 >= 0; i2--) {
+          if (hitMark(edits.marks[i2], p2, tolerance)) {
+            selected = i2;
+            break;
+          }
+        }
+      }
+    } else if (tool !== "crop") {
+      edits.marks.push({ kind: tool, x: p2.x, y: p2.y, endX: p2.x, endY: p2.y });
+      selected = edits.marks.length - 1;
+    } else selected = -1;
+    drag = { start: p2, before, index: selected, endpoint };
+    draw();
+  });
+  canvas.addEventListener("pointermove", (event) => {
+    if (!drag || saving) return;
+    const p2 = point(event);
+    if (tool === "crop") edits.crop = rectangle(drag.start, p2);
+    else if (tool !== "move") {
+      const mark = edits.marks[drag.index];
+      mark.endX = p2.x;
+      mark.endY = p2.y;
+    } else if (drag.index >= 0) {
+      const original = drag.before.marks[drag.index], mark = edits.marks[drag.index];
+      if (drag.endpoint === "start") {
+        mark.x = p2.x;
+        mark.y = p2.y;
+      } else if (drag.endpoint === "end") {
+        mark.endX = p2.x;
+        mark.endY = p2.y;
+      } else {
+        const dx = Math.max(-Math.min(original.x, original.endX), Math.min(width - Math.max(original.x, original.endX), p2.x - drag.start.x));
+        const dy = Math.max(-Math.min(original.y, original.endY), Math.min(height - Math.max(original.y, original.endY), p2.y - drag.start.y));
+        Object.assign(mark, { x: original.x + dx, y: original.y + dy, endX: original.endX + dx, endY: original.endY + dy });
+      }
+    }
+    draw();
+  });
+  canvas.addEventListener("pointerup", (event) => {
+    if (!drag) return;
+    if (tool === "crop" && (!edits.crop || edits.crop.width < 5 || edits.crop.height < 5)) edits = drag.before;
+    if (tool === "arrow" || tool === "highlight") {
+      const mark = edits.marks[drag.index];
+      if (Math.hypot(mark.endX - mark.x, mark.endY - mark.y) < 5) {
+        edits = drag.before;
+        selected = -1;
+      }
+    }
+    if (JSON.stringify(edits) !== JSON.stringify(drag.before)) history.push(drag.before);
+    drag = null;
+    canvas.releasePointerCapture(event.pointerId);
+    draw();
+  });
+  canvas.addEventListener("pointercancel", () => {
+    if (drag) edits = drag.before;
+    drag = null;
+    selected = -1;
+    draw();
+  });
+  button("delete").onclick = () => {
+    if (selected < 0) return;
+    remember();
+    edits.marks.splice(selected, 1);
+    selected = -1;
+    draw();
+  };
+  button("undo").onclick = () => {
+    const previous = history.pop();
+    if (previous) edits = previous;
+    selected = -1;
+    draw();
+  };
+  button("uncrop").onclick = () => {
+    remember();
+    edits.crop = null;
+    draw();
+  };
+  button("reset").onclick = () => {
+    remember();
+    edits = { marks: [], crop: null };
+    selected = -1;
+    draw();
+  };
+  dialog.addEventListener("keydown", (event) => {
+    event.stopPropagation();
+    if (saving) {
+      event.preventDefault();
+      return;
+    }
+    if (event.key === "Delete") {
+      event.preventDefault();
+      button("delete").click();
+    }
+    if (event.target === canvas && event.key.startsWith("Arrow") && selected >= 0) {
+      event.preventDefault();
+      const mark = edits.marks[selected];
+      const amount = event.shiftKey ? 10 : 1;
+      const dx = event.key === "ArrowLeft" ? -amount : event.key === "ArrowRight" ? amount : 0;
+      const dy = event.key === "ArrowUp" ? -amount : event.key === "ArrowDown" ? amount : 0;
+      if (Math.min(mark.x, mark.endX) + dx < 0 || Math.max(mark.x, mark.endX) + dx > width || Math.min(mark.y, mark.endY) + dy < 0 || Math.max(mark.y, mark.endY) + dy > height) return;
+      remember();
+      mark.x += dx;
+      mark.endX += dx;
+      mark.y += dy;
+      mark.endY += dy;
+      draw();
+    }
+  });
+  dialog.addEventListener("cancel", (event) => {
+    if (saving) event.preventDefault();
+  });
+  dialog.addEventListener("close", () => dialog.remove());
+  button("cancel").onclick = () => dialog.close();
+  button("save").onclick = async () => {
+    saving = true;
+    dialog.querySelectorAll("button").forEach((el) => {
+      el.disabled = true;
+    });
+    status.textContent = "Saving...";
+    try {
+      await save2(renderImage(image, edits).toDataURL("image/png"), copy(edits));
+      dialog.close();
+    } catch (error) {
+      status.textContent = `Could not save: ${error instanceof Error ? error.message : String(error)}`;
+    } finally {
+      saving = false;
+      dialog.querySelectorAll("button").forEach((el) => {
+        el.disabled = false;
+      });
+      draw();
+    }
+  };
+  dialog.showModal();
+  draw();
+}
 /**!
  * Sortable 1.15.7
  * @author	RubaXa   <trash@rubaxa.org>
@@ -2142,6 +2443,70 @@ _extends(Remove, {
 });
 Sortable.mount(new AutoScrollPlugin());
 Sortable.mount(Remove, Revert);
+const scriptRel = "modulepreload";
+const assetsURL = function(dep) {
+  return "/" + dep;
+};
+const seen = {};
+const __vitePreload = function preload(baseModule, deps, importerUrl) {
+  let promise = Promise.resolve();
+  if (deps && deps.length > 0) {
+    document.getElementsByTagName("link");
+    const cspNonceMeta = document.querySelector(
+      "meta[property=csp-nonce]"
+    );
+    const cspNonce = cspNonceMeta?.nonce || cspNonceMeta?.getAttribute("nonce");
+    promise = Promise.allSettled(
+      deps.map((dep) => {
+        dep = assetsURL(dep);
+        if (dep in seen) return;
+        seen[dep] = true;
+        const isCss = dep.endsWith(".css");
+        const cssSelector = isCss ? '[rel="stylesheet"]' : "";
+        if (document.querySelector(`link[href="${dep}"]${cssSelector}`)) {
+          return;
+        }
+        const link = document.createElement("link");
+        link.rel = isCss ? "stylesheet" : scriptRel;
+        if (!isCss) {
+          link.as = "script";
+        }
+        link.crossOrigin = "";
+        link.href = dep;
+        if (cspNonce) {
+          link.setAttribute("nonce", cspNonce);
+        }
+        document.head.appendChild(link);
+        if (isCss) {
+          return new Promise((res, rej) => {
+            link.addEventListener("load", res);
+            link.addEventListener(
+              "error",
+              () => rej(new Error(`Unable to preload CSS for ${dep}`))
+            );
+          });
+        }
+      })
+    );
+  }
+  function handlePreloadError(err2) {
+    const e = new Event("vite:preloadError", {
+      cancelable: true
+    });
+    e.payload = err2;
+    window.dispatchEvent(e);
+    if (!e.defaultPrevented) {
+      throw err2;
+    }
+  }
+  return promise.then((res) => {
+    for (const item of res || []) {
+      if (item.status !== "rejected") continue;
+      handlePreloadError(item.reason);
+    }
+    return baseModule().catch(handlePreloadError);
+  });
+};
 function _typeof(o2) {
   "@babel/helpers - typeof";
   return _typeof = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function(o3) {
@@ -9635,7 +10000,7 @@ function(t2) {
  */
 function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("../chunks/index.es-u2N9Z2hW.js"), true ? __vite__mapDeps([0,1,2]) : void 0)).catch(function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("../chunks/index.es-Bvy_3mnP.js"), true ? __vite__mapDeps([0,1]) : void 0)).catch(function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     }).then(function(t3) {
       return t3.default ? t3.default : t3;
@@ -13109,6 +13474,40 @@ const detailBadge = document.getElementById("detail-badge");
 const detailUrl = document.getElementById("detail-url");
 const detailTimestamp = document.getElementById("detail-timestamp");
 const screenshotImg = document.getElementById("screenshot-img");
+const btnEditImage = document.createElement("button");
+btnEditImage.className = "topbar-btn";
+btnEditImage.textContent = "Edit screenshot";
+btnEditImage.style.marginBottom = "10px";
+document.getElementById("screenshot-container").before(btnEditImage);
+btnEditImage.addEventListener("click", async () => {
+  const step = session?.steps.find((item) => item.id === selectedStepId);
+  if (!session || !step || step.isNote) return;
+  const sessionId = session.id;
+  btnEditImage.disabled = true;
+  try {
+    if (saveTimer) {
+      clearTimeout(saveTimer);
+      saveTimer = null;
+      await persistSession();
+    }
+    await openImageEditor(step, async (screenshotDataUrl, imageEdits) => {
+      const result = await chrome.runtime.sendMessage({
+        type: "UPDATE_STEP_IMAGE",
+        sessionId,
+        stepId: step.id,
+        screenshotDataUrl,
+        imageEdits
+      });
+      if (!result?.ok) throw new Error(result?.error || "Save failed");
+      await reloadCurrentSession();
+      showToast("Screenshot saved");
+    });
+  } catch (error) {
+    showToast(String(error));
+  } finally {
+    btnEditImage.disabled = false;
+  }
+});
 const elementInfo = document.getElementById("element-info");
 const elementTag = document.getElementById("element-tag");
 const elementText = document.getElementById("element-text");
@@ -13213,6 +13612,12 @@ chrome.storage.local.onChanged.addListener((changes) => {
     }
   } else if (selectedStepId && session.steps.some((s2) => s2.id === selectedStepId)) {
     selectStep(selectedStepId);
+  } else if (session.steps.length) {
+    selectStep(session.steps[0].id);
+  } else {
+    selectedStepId = null;
+    welcomePanel.style.display = "flex";
+    stepDetail.style.display = "none";
   }
 });
 chrome.runtime.onMessage.addListener((msg) => {
@@ -13277,6 +13682,7 @@ function createStepThumbnail(step) {
   return li;
 }
 function selectStep(stepId) {
+  btnEditImage.style.display = session?.steps.find((step2) => step2.id === stepId)?.isNote ? "none" : "";
   if (!session) return;
   selectedStepId = stepId;
   const step = session.steps.find((s2) => s2.id === stepId);

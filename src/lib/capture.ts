@@ -13,7 +13,7 @@
  * @returns A PNG data URL of the screenshot
  */
 export async function captureVisibleTab(windowId?: number): Promise<string> {
-  return chrome.tabs.captureVisibleTab(windowId, {
+  return chrome.tabs.captureVisibleTab(windowId ?? chrome.windows.WINDOW_ID_CURRENT, {
     format: 'png',
     quality: 100,
   });

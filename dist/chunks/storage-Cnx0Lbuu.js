@@ -30,14 +30,6 @@ async function saveSession(session) {
   }
   await chrome.storage.local.set({ [STORAGE_KEYS.SESSIONS]: sessions });
 }
-async function deleteSession(id) {
-  const sessions = await listSessions();
-  const filtered = sessions.filter((s) => s.id !== id);
-  await chrome.storage.local.set({ [STORAGE_KEYS.SESSIONS]: filtered });
-}
-async function clearAllSessions() {
-  await chrome.storage.local.set({ [STORAGE_KEYS.SESSIONS]: [] });
-}
 async function getActiveSessionId() {
   const result = await chrome.storage.local.get(STORAGE_KEYS.ACTIVE_SESSION_ID);
   return result[STORAGE_KEYS.ACTIVE_SESSION_ID] ?? null;
@@ -52,10 +44,6 @@ async function getIsRecording() {
 async function setIsRecording(value) {
   await chrome.storage.local.set({ [STORAGE_KEYS.IS_RECORDING]: value });
 }
-async function getActiveTabId() {
-  const result = await chrome.storage.local.get(STORAGE_KEYS.ACTIVE_TAB_ID);
-  return result[STORAGE_KEYS.ACTIVE_TAB_ID] ?? null;
-}
 async function setActiveTabId(tabId) {
   await chrome.storage.local.set({ [STORAGE_KEYS.ACTIVE_TAB_ID]: tabId });
 }
@@ -65,12 +53,6 @@ async function getSettings() {
     ...DEFAULT_SETTINGS,
     ...result[STORAGE_KEYS.SETTINGS] ?? {}
   };
-}
-async function saveSettings(settings) {
-  const current = await getSettings();
-  await chrome.storage.local.set({
-    [STORAGE_KEYS.SETTINGS]: { ...current, ...settings }
-  });
 }
 async function pruneExpiredSessions() {
   const now = Date.now();
@@ -120,42 +102,19 @@ function generateSessionName() {
     minute: "2-digit"
   })}`;
 }
-const storage = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
-  __proto__: null,
-  clearAllData,
-  clearAllSessions,
-  deleteSession,
-  formatDate,
-  generateId,
-  generateSessionName,
-  getActiveSessionId,
-  getActiveTabId,
-  getIsRecording,
-  getSession,
-  getSettings,
-  listSessions,
-  pruneExpiredSessions,
-  saveSession,
-  saveSettings,
-  setActiveSessionId,
-  setActiveTabId,
-  setIsRecording
-}, Symbol.toStringTag, { value: "Module" }));
 export {
   STORAGE_KEYS as S,
-  generateSessionName as a,
-  setActiveSessionId as b,
+  getIsRecording as a,
+  generateId as b,
   clearAllData as c,
-  setIsRecording as d,
-  setActiveTabId as e,
-  getActiveTabId as f,
-  generateId as g,
-  getActiveSessionId as h,
-  getSession as i,
-  getIsRecording as j,
-  getSettings as k,
-  formatDate as l,
-  storage as m,
+  generateSessionName as d,
+  setActiveSessionId as e,
+  setIsRecording as f,
+  getSession as g,
+  setActiveTabId as h,
+  getActiveSessionId as i,
+  getSettings as j,
+  formatDate as k,
   pruneExpiredSessions as p,
   saveSession as s
 };

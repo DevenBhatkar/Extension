@@ -11,6 +11,7 @@
  */
 
 import './editor.css';
+import { openImageEditor } from './image-editor';
 import Sortable from 'sortablejs';
 import {
   getSession,
@@ -38,6 +39,28 @@ const detailBadge = document.getElementById('detail-badge') as HTMLElement;
 const detailUrl = document.getElementById('detail-url') as HTMLElement;
 const detailTimestamp = document.getElementById('detail-timestamp') as HTMLElement;
 const screenshotImg = document.getElementById('screenshot-img') as HTMLImageElement;
+const btnEditImage = document.createElement('button');
+btnEditImage.className = 'topbar-btn';
+btnEditImage.textContent = 'Edit screenshot';
+btnEditImage.style.marginBottom = '10px';
+document.getElementById('screenshot-container')!.before(btnEditImage);
+btnEditImage.addEventListener('click', async () => {
+  const step = session?.steps.find(item => item.id === selectedStepId);
+  if (!session || !step || step.isNote) return;
+  const sessionId = session.id;
+  btnEditImage.disabled = true;
+  try {
+    if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; await persistSession(); }
+    await openImageEditor(step, async (screenshotDataUrl, imageEdits) => {
+      const result = await chrome.runtime.sendMessage({ type: 'UPDATE_STEP_IMAGE', sessionId,
+        stepId: step.id, screenshotDataUrl, imageEdits });
+      if (!result?.ok) throw new Error(result?.error || 'Save failed');
+      await reloadCurrentSession();
+      showToast('Screenshot saved');
+    });
+  } catch (error) { showToast(String(error)); }
+  finally { btnEditImage.disabled = false; }
+});
 const elementInfo = document.getElementById('element-info') as HTMLElement;
 const elementTag = document.getElementById('element-tag') as HTMLElement;
 const elementText = document.getElementById('element-text') as HTMLElement;
@@ -203,6 +226,12 @@ chrome.storage.local.onChanged.addListener((changes) => {
     }
   } else if (selectedStepId && session.steps.some((s) => s.id === selectedStepId)) {
     selectStep(selectedStepId);
+  } else if (session.steps.length) {
+    selectStep(session.steps[0]!.id);
+  } else {
+    selectedStepId = null;
+    welcomePanel.style.display = 'flex';
+    stepDetail.style.display = 'none';
   }
 });
 
@@ -302,6 +331,7 @@ function createStepThumbnail(step: Step): HTMLLIElement {
 }
 
 function selectStep(stepId: string) {
+  btnEditImage.style.display = session?.steps.find(step => step.id === stepId)?.isNote ? 'none' : '';
   if (!session) return;
   selectedStepId = stepId;
 

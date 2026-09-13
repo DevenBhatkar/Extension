@@ -15,7 +15,6 @@ const btnExportPdf = document.getElementById('btn-export-pdf') as HTMLButtonElem
 const stepCountEl = document.getElementById('step-count') as HTMLElement;
 const statusText = document.getElementById('status-text') as HTMLElement;
 const statusDot = document.getElementById('status-dot') as HTMLElement;
-const statusBadge = document.getElementById('status-badge') as HTMLElement;
 const stepCounter = document.getElementById('step-counter') as HTMLElement;
 const recordIcon = document.getElementById('record-icon') as HTMLElement;
 const btnRecordText = document.getElementById('btn-record-text') as HTMLElement;
@@ -35,6 +34,17 @@ const setupConfirm = document.getElementById('setup-confirm') as HTMLButtonEleme
 // State
 // ─────────────────────────────────────────────────────────────────────────────
 
+const btnPause = document.createElement('button');
+btnPause.className = 'btn btn-secondary';
+btnPause.textContent = 'Pause';
+const btnUndo = document.createElement('button');
+btnUndo.className = 'btn btn-secondary';
+btnUndo.textContent = 'Undo last capture';
+const controls = document.createElement('div');
+controls.style.cssText = 'display:flex;gap:8px;margin:10px 0';
+controls.append(btnPause, btnUndo);
+btnToggle.after(controls);
+let isPaused = false;
 let isRecording = false;
 let stepCount = 0;
 let activeSessionId: string | null = null;
@@ -47,8 +57,8 @@ async function init() {
   try {
     // Get current state from service worker
     const state = await chrome.runtime.sendMessage({ type: 'GET_STATE' });
-    if (state) {
-      updateUI(state.isRecording, state.stepCount, state.sessionId);
+    if (state?.type === 'STATE_UPDATE') {
+      updateUI(state.isRecording, state.stepCount, state.sessionId, state.isPaused);
     }
   } catch (err) {
     console.warn('[AutoDoc Popup] Failed to get state:', err);
@@ -61,13 +71,6 @@ async function init() {
 }
 
 async function loadSessionName(sessionId: string) {
-  try {
-    const { default: getSession } = await import('../lib/storage');
-    void getSession; // type-only import check
-  } catch {
-    // Fallback: get from storage directly
-  }
-
   const result = await chrome.storage.local.get('autodoc_sessions');
   const sessions = result['autodoc_sessions'] ?? [];
   const session = sessions.find((s: { id: string }) => s.id === sessionId);
@@ -81,7 +84,11 @@ async function loadSessionName(sessionId: string) {
 // UI Update
 // ─────────────────────────────────────────────────────────────────────────────
 
-function updateUI(recording: boolean, count: number, sessionId: string | null) {
+function updateUI(recording: boolean, count: number, sessionId: string | null, paused = false) {
+  isPaused = paused;
+  btnPause.style.display = recording ? '' : 'none';
+  btnPause.textContent = paused ? "Resume" : "Pause";
+  btnUndo.disabled = count === 0;
   isRecording = recording;
   activeSessionId = sessionId;
 
@@ -97,7 +104,7 @@ function updateUI(recording: boolean, count: number, sessionId: string | null) {
     btnRecordText.textContent = 'Stop Recording';
     recordIcon.classList.add('recording');
 
-    statusText.textContent = 'Recording';
+    statusText.textContent = paused ? 'Paused' : 'Recording';
     statusDot.className = 'status-dot recording';
     stepCounter.classList.add('recording');
 
@@ -136,10 +143,12 @@ btnToggle.addEventListener('click', async () => {
     // Stop recording immediately — no modal needed
     btnToggle.disabled = true;
     try {
-      await chrome.runtime.sendMessage({ type: 'STOP_RECORDING' });
+      const result = await chrome.runtime.sendMessage({ type: 'STOP_RECORDING' });
+      if (!result?.ok) throw new Error(result?.error || 'Could not stop recording.');
       updateUI(false, stepCount, activeSessionId);
     } catch (err) {
       console.error('[AutoDoc Popup] Stop error:', err);
+      statusText.textContent = String(err);
     } finally {
       btnToggle.disabled = false;
     }
@@ -213,9 +222,13 @@ async function handleSetupConfirm() {
     if (result?.ok) {
       closeSetupModal();
       updateUI(true, 0, result.sessionId);
+    } else {
+      throw new Error(result?.error || 'Could not start recording.');
     }
   } catch (err) {
     console.error('[AutoDoc Popup] Start error:', err);
+    featureNameError.textContent = String(err);
+    featureNameError.classList.add('visible');
   } finally {
     setupConfirm.disabled = false;
   }
@@ -285,7 +298,7 @@ btnExportPdf.addEventListener('click', async () => {
 
 chrome.runtime.onMessage.addListener((message) => {
   if (message.type === 'STATE_UPDATE') {
-    updateUI(message.isRecording, message.stepCount, message.sessionId);
+    updateUI(message.isRecording, message.stepCount, message.sessionId, message.isPaused);
   }
 });
 
@@ -294,3 +307,21 @@ chrome.runtime.onMessage.addListener((message) => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 init().catch(console.error);
+
+async function recordingControl(type: string): Promise<void> {
+  btnPause.disabled = true;
+  btnUndo.disabled = true;
+  try {
+    const result = await chrome.runtime.sendMessage({ type });
+    if (!result?.ok) throw new Error(result?.error || 'Action failed');
+    const state = await chrome.runtime.sendMessage({ type: 'GET_STATE' });
+    updateUI(state.isRecording, state.stepCount, state.sessionId, state.isPaused);
+  } catch (error) {
+    statusText.textContent = String(error);
+  } finally {
+    btnPause.disabled = false;
+    btnUndo.disabled = stepCount === 0;
+  }
+}
+btnPause.addEventListener('click', () => { void recordingControl(isPaused ? 'RESUME_RECORDING' : 'PAUSE_RECORDING'); });
+btnUndo.addEventListener('click', () => { void recordingControl('UNDO_CAPTURE'); });

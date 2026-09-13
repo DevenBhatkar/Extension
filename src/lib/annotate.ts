@@ -222,7 +222,7 @@ function drawStepBadge(
 
   // Badge background (rounded pill)
   roundRect(ctx, bx, by, badgeWidth, badgeHeight, cornerRadius);
-  ctx.fillStyle = badgeColor;
+  ctx.fillStyle = bgColor;
   ctx.fill();
 
   // Subtle border
@@ -232,7 +232,7 @@ function drawStepBadge(
   ctx.stroke();
 
   // Badge text
-  ctx.fillStyle = badgeTextColor;
+  ctx.fillStyle = textColor;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.font = `500 ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;

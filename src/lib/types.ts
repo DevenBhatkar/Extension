@@ -9,6 +9,7 @@
 
 /** Represents a single captured interaction step */
 export interface Step {
+  imageEdits?: ImageEdits;
   /** Unique identifier (UUID-like) */
   id: string;
   /** 1-based sequential step number */
@@ -59,6 +60,7 @@ export interface SessionMetadata {
 
 /** A recording session containing multiple steps */
 export interface Session {
+  isPaused?: boolean;
   /** Unique session identifier */
   id: string;
   /** User-visible name for this session */
@@ -84,6 +86,12 @@ export interface Session {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export type MessageType =
+  | 'UPDATE_STEP_IMAGE'
+  | 'PAUSE_RECORDING'
+  | 'RESUME_RECORDING'
+  | 'UNDO_CAPTURE'
+  | 'PREPARE_CAPTURE'
+  | 'CAPTURE_FINISHED'
   | 'START_RECORDING'
   | 'STOP_RECORDING'
   | 'CAPTURE_STEP'
@@ -114,6 +122,7 @@ export interface StopRecordingMessage extends BaseMessage {
 }
 
 export interface CaptureStepMessage extends BaseMessage {
+  manual?: boolean;
   type: 'CAPTURE_STEP';
   clickX: number;
   clickY: number;
@@ -137,6 +146,7 @@ export interface GetStateMessage extends BaseMessage {
 }
 
 export interface StateUpdateMessage extends BaseMessage {
+  isPaused?: boolean;
   type: 'STATE_UPDATE';
   isRecording: boolean;
   stepCount: number;
@@ -163,6 +173,9 @@ export interface ClearSessionDataMessage extends BaseMessage {
 }
 
 export type ExtensionMessage =
+  | { type: 'UPDATE_STEP_IMAGE'; sessionId: string; stepId: string; screenshotDataUrl: string; imageEdits: ImageEdits }
+  | { type: 'PAUSE_RECORDING' | 'RESUME_RECORDING' | 'UNDO_CAPTURE' | 'PREPARE_CAPTURE' }
+  | { type: 'CAPTURE_FINISHED'; ok: boolean; error?: string }
   | StartRecordingMessage
   | StopRecordingMessage
   | CaptureStepMessage
@@ -178,6 +191,8 @@ export type ExtensionMessage =
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface AnnotationOptions {
+  viewportWidth?: number;
+  viewportHeight?: number;
   clickX: number;
   clickY: number;
   stepNumber: number;
@@ -189,6 +204,20 @@ export interface AnnotationOptions {
   badgeTextColor?: string;
   /** Ring radius in pixels (default: 32) */
   ringRadius?: number;
+}
+
+/** Image coordinates are stored against the original screenshot, before cropping. */
+export interface ImageMark {
+  kind: 'arrow' | 'highlight';
+  x: number;
+  y: number;
+  endX: number;
+  endY: number;
+}
+
+export interface ImageEdits {
+  marks: ImageMark[];
+  crop: { x: number; y: number; width: number; height: number } | null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

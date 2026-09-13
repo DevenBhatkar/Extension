@@ -19,7 +19,6 @@ import {
   setActiveSessionId,
   setActiveTabId,
   setIsRecording,
-  getActiveTabId,
   getSession,
   pruneExpiredSessions,
   clearAllData,
@@ -33,6 +32,54 @@ import type {
   StateUpdateMessage,
 } from '../lib/types';
 
+// Keep capture, undo and recording controls in order, including across tabs.
+let operations: Promise<unknown> = Promise.resolve();
+function serialize<T>(operation: () => Promise<T>): Promise<T> {
+  const result = operations.then(operation);
+  operations = result.catch(() => {});
+  return result;
+}
+const delay = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
+async function withTimeout<T>(task: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([task, new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => reject(new Error('The page did not respond in time. Please try again.')), ms);
+    })]);
+  } finally { clearTimeout(timer); }
+}
+
+async function broadcastState(): Promise<void> {
+  const state = await getState();
+  const session = state.sessionId ? await getSession(state.sessionId) : null;
+  await Promise.all((session?.trackedTabIds ?? []).map(tabId =>
+    chrome.tabs.sendMessage(tabId, state).catch(() => {})));
+  await chrome.runtime.sendMessage(state).catch(() => {});
+}
+
+async function setPaused(isPaused: boolean): Promise<{ ok: boolean; error?: string }> {
+  const id = await getActiveSessionId();
+  const session = id ? await getSession(id) : null;
+  if (!session?.isRecording) return { ok: false, error: 'No active recording.' };
+  await saveSession({ ...session, isPaused });
+  await broadcastState();
+  return { ok: true };
+}
+
+async function undoCapture(): Promise<{ ok: boolean; error?: string }> {
+  const id = await getActiveSessionId();
+  const session = id ? await getSession(id) : null;
+  const last = session?.steps.filter(step => !step.isNote)
+    .sort((a, b) => b.timestamp - a.timestamp)[0];
+  if (!session || !last) return { ok: false, error: 'No capture to undo.' };
+  let number = 0;
+  const steps = session.steps.filter(step => step.id !== last.id)
+    .map(step => step.isNote ? step : { ...step, stepNumber: ++number });
+  await saveSession({ ...session, steps });
+  await broadcastState();
+  return { ok: true };
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Message Listener
 // ─────────────────────────────────────────────────────────────────────────────
@@ -40,7 +87,7 @@ import type {
 chrome.runtime.onMessage.addListener(
   (message: ExtensionMessage, sender, sendResponse) => {
     // All handlers are async, so we return true to keep the channel open
-    handleMessage(message, sender)
+    serialize(() => handleMessage(message, sender))
       .then(sendResponse)
       .catch((err) => {
         console.error('[AutoDoc SW] Message handler error:', err);
@@ -55,8 +102,27 @@ async function handleMessage(
   sender: chrome.runtime.MessageSender
 ): Promise<unknown> {
   switch (message.type) {
+    case 'UPDATE_STEP_IMAGE': {
+      if (sender.tab?.url && !sender.tab.url.startsWith(chrome.runtime.getURL('editor/'))) {
+        return { ok: false, error: 'Image edits must come from the editor.' };
+      }
+      const session = await getSession(message.sessionId);
+      if (!session?.steps.some(step => step.id === message.stepId)) {
+        return { ok: false, error: 'This step was removed. Close the image editor and select another step.' };
+      }
+      await saveSession({ ...session, steps: session.steps.map(step => step.id === message.stepId
+        ? { ...step, screenshotDataUrl: message.screenshotDataUrl, imageEdits: message.imageEdits } : step) });
+      return { ok: true };
+    }
     case 'START_RECORDING':
       return startRecording(message.sessionName, message.tabId ?? sender.tab?.id, message.featureName, message.environmentType);
+
+    case 'PAUSE_RECORDING':
+      return setPaused(true);
+    case 'RESUME_RECORDING':
+      return setPaused(false);
+    case 'UNDO_CAPTURE':
+      return undoCapture();
 
     case 'STOP_RECORDING':
       return stopRecording();
@@ -65,7 +131,7 @@ async function handleMessage(
       return captureStep(message as CaptureStepMessage, sender.tab?.id);
 
     case 'GET_STATE':
-      return getState();
+      return getState(sender.tab?.id);
 
     case 'EXPORT_PDF':
       // PDF export is handled in the editor page context
@@ -93,6 +159,11 @@ async function startRecording(
   featureName?: string,
   environmentType?: 'Pre Deployment' | 'Post Deployment'
 ): Promise<{ ok: boolean; sessionId: string }> {
+  const targetTabId = tabId ?? (await getCurrentTabId());
+  if (targetTabId === undefined) throw new Error('Open a web page before starting a recording.');
+  const target = await chrome.tabs.get(targetTabId);
+  if (!target.url?.match(/^https?:\/\//)) throw new Error('Recording is available on HTTP and HTTPS web pages.');
+  if (await getIsRecording()) await stopRecording();
   // Always clear the previous session's data before starting a new recording.
   // This ensures the user can review / re-export their last report until they
   // explicitly begin a new recording session.
@@ -102,7 +173,6 @@ async function startRecording(
   await chrome.storage.session.remove(BROWSER_SESSION_KEY).catch(() => {});
   console.log('[AutoDoc SW] Previous session data cleared — starting fresh.');
 
-  const targetTabId = tabId ?? (await getCurrentTabId());
   const id = generateId();
   const name = sessionName ?? featureName ?? generateSessionName();
 
@@ -120,9 +190,9 @@ async function startRecording(
     updatedAt: Date.now(),
     steps: [],
     isRecording: true,
-    activeTabId: targetTabId,
+    ...(targetTabId !== undefined ? { activeTabId: targetTabId } : {}),
     trackedTabIds: targetTabId ? [targetTabId] : [],
-    metadata,
+    ...(metadata ? { metadata } : {}),
   };
 
   await saveSession(newSession);
@@ -146,37 +216,11 @@ async function startRecording(
 }
 
 async function stopRecording(): Promise<{ ok: boolean }> {
-  const tabId = await getActiveTabId();
-
   await setIsRecording(false);
-
-  // Update the session's isRecording flag
   const sessionId = await getActiveSessionId();
-  let session: Awaited<ReturnType<typeof getSession>> = null;
-  if (sessionId) {
-    session = await getSession(sessionId);
-    if (session) {
-      await saveSession({ ...session, isRecording: false, updatedAt: Date.now() });
-    }
-  }
-
-  // Notify ALL tracked tabs (not just the active one) so every content script
-  // clears its recording state and stops showing the capture indicator.
-  const trackedTabIds = session?.trackedTabIds ?? (tabId ? [tabId] : []);
-  for (const tid of trackedTabIds) {
-    try {
-      await chrome.tabs.sendMessage(tid, {
-        type: 'STATE_UPDATE',
-        isRecording: false,
-        stepCount: 0,
-        sessionId: null,
-      } satisfies StateUpdateMessage);
-    } catch {
-      // Tab may have been closed or navigated away — ignore
-    }
-  }
-
-  console.log('[AutoDoc SW] Recording stopped.');
+  const session = sessionId ? await getSession(sessionId) : null;
+  if (session) await saveSession({ ...session, isRecording: false, isPaused: false });
+  await broadcastState();
   return { ok: true };
 }
 
@@ -184,137 +228,102 @@ async function stopRecording(): Promise<{ ok: boolean }> {
 // Screenshot Capture + Step Saving
 // ─────────────────────────────────────────────────────────────────────────────
 
-async function captureStep(
-  message: CaptureStepMessage,
-  tabId?: number
-): Promise<{ ok: boolean; stepId?: string }> {
-  const isRecording = await getIsRecording();
-  if (!isRecording) return { ok: false };
-
+async function captureStep(message: CaptureStepMessage, tabId?: number): Promise<{ ok: boolean; error?: string }> {
   const sessionId = await getActiveSessionId();
-  if (!sessionId) return { ok: false };
-
-  const session = await getSession(sessionId);
-  if (!session) return { ok: false };
-
-  // Capture the visible tab
-  let rawDataUrl: string;
-  try {
-    rawDataUrl = await chrome.tabs.captureVisibleTab(undefined, {
-      format: 'png',
-      quality: 100,
-    });
-  } catch (err) {
-    console.error('[AutoDoc SW] captureVisibleTab failed:', err);
-    return { ok: false };
+  const session = sessionId ? await getSession(sessionId) : null;
+  if (!session?.isRecording || session.isPaused || tabId === undefined ||
+      !session.trackedTabIds?.includes(tabId)) {
+    return { ok: false, error: 'Recording is paused or this tab is not being recorded.' };
   }
 
-  const settings = await getSettings();
-  const stepNumber = session.steps.length + 1;
-  const stepId = generateId();
-
-  // Duplicate detection disabled — use ALT+click to skip unwanted steps instead.
-
-  // Build the step object with the raw screenshot
-  // The content script will annotate it and send back the annotated version
-  const autoDescription = settings.autoDescription && message.elementText
-    ? generateAutoDescription(message.elementTag, message.elementText, message.pageTitle)
-    : '';
-
-  const step: Step = {
-    id: stepId,
-    stepNumber,
-    timestamp: Date.now(),
-    screenshotDataUrl: rawDataUrl, // Will be replaced by annotated version
-    rawScreenshotDataUrl: rawDataUrl,
-    clickX: message.clickX,
-    clickY: message.clickY,
-    clickXPercent: message.clickXPercent,
-    clickYPercent: message.clickYPercent,
-    pageUrl: message.pageUrl,
-    pageTitle: message.pageTitle,
-    description: autoDescription,
-    elementTag: message.elementTag,
-    elementText: message.elementText,
-    viewportWidth: message.viewportWidth,
-    viewportHeight: message.viewportHeight,
-  };
-
-  // Ask content script to annotate the screenshot
-  if (tabId) {
-    try {
-      const annotatedResult = await chrome.tabs.sendMessage(tabId, {
-        type: 'ANNOTATE_SCREENSHOT',
-        rawDataUrl,
-        clickX: message.clickX,
-        clickY: message.clickY,
-        stepNumber,
-        viewportWidth: message.viewportWidth,
-        viewportHeight: message.viewportHeight,
-      });
-
-      if (annotatedResult?.annotatedDataUrl) {
-        step.screenshotDataUrl = annotatedResult.annotatedDataUrl;
+  let result: { ok: boolean; error?: string } = { ok: false };
+  try {
+    // Keep the request in the worker so it survives navigation in the source tab.
+    await delay(350);
+    let prepared: { pageUrl: string; pageTitle: string; viewportWidth: number; viewportHeight: number } | undefined;
+    const deadline = Date.now() + 8000;
+    while (Date.now() < deadline) {
+      const tab = await chrome.tabs.get(tabId);
+      if (!tab.active) throw new Error('Capture cancelled because you switched tabs. Return to the page and capture again.');
+      if (tab.status === 'complete') {
+        try {
+          prepared = await withTimeout(chrome.tabs.sendMessage(tabId, { type: 'PREPARE_CAPTURE' }), 3000);
+          if (prepared?.viewportWidth) break;
+        } catch { /* A navigation may have replaced the content script. */ }
       }
-    } catch (err) {
-      console.warn('[AutoDoc SW] Annotation failed, using raw screenshot:', err);
+      await delay(150);
     }
-  }
-
-  // Save the step to the session
-  const updatedSession: Session = {
-    ...session,
-    steps: [...session.steps, step],
-    updatedAt: Date.now(),
-  };
-  await saveSession(updatedSession);
-
-  // Notify popup to update step count badge
-  try {
-    chrome.runtime.sendMessage({
-      type: 'STATE_UPDATE',
-      isRecording: true,
-      stepCount: updatedSession.steps.length,
-      sessionId,
-    } satisfies StateUpdateMessage);
-  } catch {
-    // Popup may be closed — ignore
-  }
-
-  if (tabId) {
-    try {
-      await chrome.tabs.sendMessage(tabId, {
-        type: 'STATE_UPDATE',
-        isRecording: true,
-        stepCount: updatedSession.steps.length,
-        sessionId,
-      } satisfies StateUpdateMessage);
-    } catch {
-      // Content script may be unavailable after navigation.
+    if (!prepared?.viewportWidth) throw new Error('Page is still loading. Wait for it to finish, then capture again.');
+    const tab = await chrome.tabs.get(tabId);
+    if (!tab.active || tab.status !== 'complete' || tab.url !== prepared.pageUrl) {
+      throw new Error('Page changed during capture. Please try again.');
     }
+    const rawDataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'png' });
+    const after = await chrome.tabs.get(tabId);
+    if (!after.active || after.url !== prepared.pageUrl || after.status !== 'complete') {
+      throw new Error('Page changed during capture. Please try again.');
+    }
+    const settings = await getSettings();
+    const latest = await getSession(session.id);
+    if (!latest) throw new Error('Recording session no longer exists.');
+    const stepNumber = latest.steps.filter(step => !step.isNote).length + 1;
+    const step: Step = {
+      id: generateId(), stepNumber, timestamp: Date.now(),
+      screenshotDataUrl: rawDataUrl, rawScreenshotDataUrl: rawDataUrl,
+      clickX: message.clickX, clickY: message.clickY,
+      clickXPercent: message.clickXPercent, clickYPercent: message.clickYPercent,
+      ...prepared,
+      description: message.manual ? 'View the current page' : settings.autoDescription
+        ? generateAutoDescription(message.elementTag, message.elementText) : '',
+      elementTag: message.elementTag ?? '', elementText: message.elementText ?? '',
+    };
+    // A manual capture has no clicked page element to annotate.
+    if (!message.manual && message.pageUrl === prepared.pageUrl) {
+      const annotated = await withTimeout(chrome.tabs.sendMessage(tabId, {
+        type: 'ANNOTATE_SCREENSHOT', rawDataUrl, clickX: step.clickX, clickY: step.clickY,
+        stepNumber, viewportWidth: prepared.viewportWidth, viewportHeight: prepared.viewportHeight,
+      }), 3000);
+      if (!annotated?.annotatedDataUrl) throw new Error('Could not annotate the screenshot. Please try again.');
+      step.screenshotDataUrl = annotated.annotatedDataUrl;
+    } else {
+      step.imageEdits = { marks: [], crop: null };
+    }
+    // Re-read after annotation so edits or tab tracking are not overwritten.
+    const current = await getSession(session.id);
+    if (!current) throw new Error('Recording session no longer exists.');
+    await saveSession({ ...current, steps: [...current.steps, step] });
+    result = { ok: true };
+    await broadcastState();
+  } catch (error) {
+    result = { ok: false, error: error instanceof Error ? error.message : String(error) };
+  } finally {
+    await chrome.tabs.sendMessage(tabId, { type: 'CAPTURE_FINISHED', ...result }).catch(() => {});
   }
-
-  console.log(`[AutoDoc SW] Step ${stepNumber} captured.`);
-  return { ok: true, stepId };
+  return result;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // State Query
 // ─────────────────────────────────────────────────────────────────────────────
 
-async function getState(): Promise<StateUpdateMessage> {
+async function getState(tabId?: number): Promise<StateUpdateMessage> {
   const isRecording = await getIsRecording();
   const sessionId = await getActiveSessionId();
   let stepCount = 0;
+  let isPaused = false;
+  let tracked = true;
 
   if (sessionId) {
     const session = await getSession(sessionId);
     stepCount = session?.steps.length ?? 0;
+    isPaused = session?.isPaused ?? false;
+    tracked = tabId === undefined || (session?.trackedTabIds?.includes(tabId) ?? false);
   }
 
   return {
     type: 'STATE_UPDATE',
-    isRecording,
+    isRecording: isRecording && tracked,
+    isPaused,
     stepCount,
     sessionId,
   };
@@ -324,7 +333,7 @@ async function getState(): Promise<StateUpdateMessage> {
 // Keyboard Shortcut Commands
 // ─────────────────────────────────────────────────────────────────────────────
 
-chrome.commands.onCommand.addListener(async (command) => {
+chrome.commands.onCommand.addListener((command) => { void serialize(async () => {
   if (command === 'toggle-recording') {
     const isRecording = await getIsRecording();
     const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -344,14 +353,14 @@ chrome.commands.onCommand.addListener(async (command) => {
       await chrome.tabs.create({ url });
     }
   }
-});
+}).catch(console.error); });
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Tab Management
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Track new tabs opened from existing tracked tabs
-chrome.tabs.onCreated.addListener(async (tab) => {
+chrome.tabs.onCreated.addListener((tab) => { void serialize(async () => {
   const isRecording = await getIsRecording();
   if (!isRecording || !tab.id || !tab.openerTabId) return;
 
@@ -367,10 +376,10 @@ chrome.tabs.onCreated.addListener(async (tab) => {
     await setActiveTabId(tab.id);
     console.log(`[AutoDoc SW] Tracking new tab ${tab.id} opened from ${tab.openerTabId}`);
   }
-});
+}).catch(console.error); });
 
 // Update active tab when switching between tracked tabs
-chrome.tabs.onActivated.addListener(async (activeInfo) => {
+chrome.tabs.onActivated.addListener((activeInfo) => { void serialize(async () => {
   const isRecording = await getIsRecording();
   if (!isRecording) return;
 
@@ -390,6 +399,7 @@ chrome.tabs.onActivated.addListener(async (activeInfo) => {
       await chrome.tabs.sendMessage(activeInfo.tabId, {
         type: 'STATE_UPDATE',
         isRecording: true,
+        isPaused: session.isPaused ?? false,
         stepCount: session.steps.length,
         sessionId,
       } satisfies StateUpdateMessage);
@@ -397,10 +407,10 @@ chrome.tabs.onActivated.addListener(async (activeInfo) => {
       // Ignore if tab isn't fully loaded yet
     }
   }
-});
+}).catch(console.error); });
 
 // Stop recording if all tracked tabs are closed
-chrome.tabs.onRemoved.addListener(async (tabId) => {
+chrome.tabs.onRemoved.addListener((tabId) => { void serialize(async () => {
   const isRecording = await getIsRecording();
   if (!isRecording) return;
 
@@ -418,7 +428,7 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
       await saveSession({ ...session, trackedTabIds: updatedTracked });
     }
   }
-});
+}).catch(console.error); });
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Startup & Install — Data Lifecycle
@@ -457,8 +467,7 @@ chrome.runtime.onInstalled.addListener(async () => {
  */
 function generateAutoDescription(
   elementTag?: string,
-  elementText?: string,
-  pageTitle?: string
+  elementText?: string
 ): string {
   if (!elementTag || !elementText) return '';
 

@@ -1,369 +1,205 @@
-/**
- * AutoDoc - Content Script
- *
- * Injected into every web page. Responsibilities:
- * - Listen for user clicks and relay them to the background service worker
- * - Receive annotate/duplicate-check requests from the service worker
- * - Show a visual flash overlay at the click location during capture
- */
-
-import { annotateScreenshot, compareScreenshots } from '../lib/annotate';
-import type { ExtensionMessage, StateUpdateMessage } from '../lib/types';
-
-// ─────────────────────────────────────────────────────────────────────────────
-// State
-// ─────────────────────────────────────────────────────────────────────────────
+/** AutoDoc: explicit capture gestures and recording controls. */
+import { annotateScreenshot } from '../lib/annotate';
+import type { ExtensionMessage, CaptureStepMessage, StateUpdateMessage } from '../lib/types';
 
 let isRecording = false;
-let isCapturing = false; // Prevents double-captures during async processing
+let isPaused = false;
+let isCapturing = false;
+let captureKeyHeld = false;
+let stepCount = 0;
+let host: HTMLDivElement | null = null;
+let status: HTMLElement | null = null;
+let captureButton: HTMLButtonElement | null = null;
+let pauseButton: HTMLButtonElement | null = null;
+let undoButton: HTMLButtonElement | null = null;
+let restoreTimer: ReturnType<typeof setTimeout> | undefined;
+let finishReceived = false;
+let lastStatus = '';
+let lastStatusError = false;
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Click Listener
-// ─────────────────────────────────────────────────────────────────────────────
-
-document.addEventListener(
-  'click',
-  async (event: MouseEvent) => {
-    if (!isRecording || isCapturing) return;
-
-    // Ignore clicks on our own overlay elements
-    const target = event.target as HTMLElement;
-    if (target.closest?.('[data-autodoc-overlay]')) return;
-
-    // SHIFT + Click → skip this step (no screenshot captured)
-    if (event.shiftKey) {
-      showSkippedToast(event.clientX, event.clientY);
-      return;
-    }
-
-    isCapturing = true;
-
-    const clickX = event.clientX;
-    const clickY = event.clientY;
-
-    // Collect element info
-    const elementTag = target.tagName ?? '';
-    const rawText = (
-      target.innerText ||
-      (target as HTMLInputElement).value ||
-      target.getAttribute('aria-label') ||
-      target.getAttribute('title') ||
-      target.getAttribute('placeholder') ||
-      ''
-    ).trim().slice(0, 100);
-
-    // Show flash effect at click point
-    showClickFlash(clickX, clickY);
-
-    try {
-      await chrome.runtime.sendMessage({
-        type: 'CAPTURE_STEP',
-        clickX,
-        clickY,
-        clickXPercent: clickX / window.innerWidth,
-        clickYPercent: clickY / window.innerHeight,
-        pageUrl: window.location.href,
-        pageTitle: document.title,
-        elementTag,
-        elementText: rawText,
-        viewportWidth: window.innerWidth,
-        viewportHeight: window.innerHeight,
-      });
-    } catch (err) {
-      console.warn('[AutoDoc] Failed to send CAPTURE_STEP:', err);
-    } finally {
-      // Small delay to prevent capturing multiple clicks in rapid succession
-      setTimeout(() => {
-        isCapturing = false;
-      }, 600);
-    }
-  },
-  true // Use capture phase so we get clicks before the page's own handlers
-);
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Message Listener (from Service Worker)
-// ─────────────────────────────────────────────────────────────────────────────
-
-chrome.runtime.onMessage.addListener(
-  (message: ExtensionMessage | DuplicateCheckMessage, _sender, sendResponse) => {
-    handleIncomingMessage(message)
-      .then(sendResponse)
-      .catch((err) => {
-        console.error('[AutoDoc Content] Handler error:', err);
-        sendResponse({ error: String(err) });
-      });
-    return true;
-  }
-);
-
-interface DuplicateCheckMessage {
-  type: 'DUPLICATE_CHECK_RESULT';
-  rawDataUrl: string;
-  previousDataUrl: string;
-  threshold: number;
+function hasModifiers(event: KeyboardEvent | MouseEvent): boolean {
+  return event.ctrlKey || event.metaKey || event.altKey || event.shiftKey;
 }
 
-async function handleIncomingMessage(
-  message: ExtensionMessage | DuplicateCheckMessage
-): Promise<unknown> {
-  switch (message.type) {
-    case 'STATE_UPDATE': {
-      const m = message as StateUpdateMessage;
-      isRecording = m.isRecording;
-      updateRecordingIndicator(m.isRecording, m.stepCount);
-      return { ok: true };
-    }
+document.addEventListener('keydown', (event: KeyboardEvent) => {
+  if (hasModifiers(event)) captureKeyHeld = false;
+  if (!isRecording || isPaused || event.code !== 'KeyC' || event.repeat ||
+      event.isComposing || hasModifiers(event) || !event.isTrusted) return;
+  const editing = event.composedPath().some(node => node instanceof HTMLElement && (
+    node.isContentEditable || node.matches('input, textarea, select, [role="textbox"], [data-autodoc-overlay]')
+  ));
+  if (!editing) captureKeyHeld = true;
+}, true);
+document.addEventListener('keyup', event => {
+  if (event.code === 'KeyC') captureKeyHeld = false;
+}, true);
+window.addEventListener('blur', () => { captureKeyHeld = false; });
+document.addEventListener('visibilitychange', () => { captureKeyHeld = false; });
 
-    case 'ANNOTATE_SCREENSHOT': {
-      const m = message as {
-        type: 'ANNOTATE_SCREENSHOT';
-        rawDataUrl: string;
-        clickX: number;
-        clickY: number;
-        stepNumber: number;
-        viewportWidth: number;
-        viewportHeight: number;
-      };
-      try {
-        const annotatedDataUrl = await annotateScreenshot(m.rawDataUrl, {
-          clickX: m.clickX,
-          clickY: m.clickY,
-          stepNumber: m.stepNumber,
-          viewportWidth: m.viewportWidth,
-          viewportHeight: m.viewportHeight,
-        });
-        return { annotatedDataUrl };
-      } catch (err) {
-        console.error('[AutoDoc Content] Annotation failed:', err);
-        return { annotatedDataUrl: m.rawDataUrl }; // Fallback to raw
-      }
-    }
+document.addEventListener('click', (event: MouseEvent) => {
+  if (!isRecording || isPaused || isCapturing || !captureKeyHeld || !event.isTrusted ||
+      event.button !== 0 || event.detail === 0 || hasModifiers(event)) return;
+  if (event.composedPath().includes(host!)) return;
+  const target = event.composedPath().find(node => node instanceof HTMLElement) as HTMLElement | undefined;
+  if (!target) return;
+  void requestCapture(event.clientX, event.clientY, target);
+}, true);
 
-    case 'DUPLICATE_CHECK_RESULT': {
-      const m = message as DuplicateCheckMessage;
-      try {
-        const similarity = await compareScreenshots(m.rawDataUrl, m.previousDataUrl);
-        const isDuplicate = similarity >= m.threshold;
-
-        if (isDuplicate) {
-          const skip = await showDuplicatePrompt(similarity);
-          return { isDuplicate: skip };
-        }
-        return { isDuplicate: false };
-      } catch {
-        return { isDuplicate: false };
-      }
-    }
-
-    default:
-      return { error: 'Unknown message' };
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Init: Sync recording state on page load
-// ─────────────────────────────────────────────────────────────────────────────
-
-(async function init() {
+async function requestCapture(x: number, y: number, target?: HTMLElement): Promise<void> {
+  if (!isRecording || isPaused || isCapturing) return;
+  isCapturing = true;
+  finishReceived = false;
+  renderControls();
+  setStatus('Waiting for page updates...');
+  const message: CaptureStepMessage = {
+    type: 'CAPTURE_STEP', manual: !target,
+    clickX: x, clickY: y, clickXPercent: x / innerWidth, clickYPercent: y / innerHeight,
+    pageUrl: location.href, pageTitle: document.title,
+    elementTag: target?.tagName ?? '',
+    elementText: (target?.innerText || target?.getAttribute('aria-label') ||
+      target?.getAttribute('title') || target?.getAttribute('placeholder') || '').trim().slice(0, 100),
+    viewportWidth: innerWidth, viewportHeight: innerHeight,
+  };
   try {
-    const state = await chrome.runtime.sendMessage({ type: 'GET_STATE' });
-    if (state?.isRecording) {
-      isRecording = true;
-      updateRecordingIndicator(true, state.stepCount);
-    }
+    const result = await chrome.runtime.sendMessage(message);
+    if (!finishReceived) finishCapture(result?.ok === true, result?.error);
   } catch {
-    // Extension context may not be available on first load
-  }
-})();
-
-// ─────────────────────────────────────────────────────────────────────────────
-// UI Helpers
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Show an animated flash ring at the click location.
- */
-function showClickFlash(x: number, y: number): void {
-  const flash = document.createElement('div');
-  flash.setAttribute('data-autodoc-overlay', 'true');
-  flash.style.cssText = `
-    position: fixed;
-    left: ${x - 24}px;
-    top: ${y - 24}px;
-    width: 48px;
-    height: 48px;
-    border-radius: 50%;
-    border: 2px solid rgba(37, 99, 235, 0.8);
-    box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.4);
-    animation: autodoc-pulse 0.6s ease-out forwards;
-    pointer-events: none;
-    z-index: 2147483647;
-  `;
-  document.body.appendChild(flash);
-
-  // Minimal capture tooltip
-  const badge = document.createElement('div');
-  badge.setAttribute('data-autodoc-overlay', 'true');
-  badge.style.cssText = `
-    position: fixed;
-    left: ${x + 20}px;
-    top: ${y - 20}px;
-    background: #ffffff;
-    color: #0f172a;
-    border: 1px solid #e2e8f0;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
-    border-radius: 6px;
-    padding: 4px 8px;
-    font-size: 11px;
-    font-family: -apple-system, sans-serif;
-    font-weight: 500;
-    pointer-events: none;
-    z-index: 2147483647;
-    opacity: 1;
-    transition: opacity 0.4s ease;
-    display: flex;
-    align-items: center;
-    gap: 4px;
-  `;
-  badge.innerHTML = `<span style="color:#2563eb;font-weight:bold;">✓</span> Captured`;
-  document.body.appendChild(badge);
-
-  setTimeout(() => {
-    flash.remove();
-    badge.style.opacity = '0';
-    setTimeout(() => badge.remove(), 400);
-  }, 600);
-}
-
-/**
- * Show a "Skipped" toast when ALT+click is used to bypass screenshot capture.
- */
-function showSkippedToast(x: number, y: number): void {
-  const badge = document.createElement('div');
-  badge.setAttribute('data-autodoc-overlay', 'true');
-  badge.style.cssText = `
-    position: fixed;
-    left: ${x + 20}px;
-    top: ${y - 20}px;
-    background: #fffbeb;
-    color: #92400e;
-    border: 1px solid #fde68a;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-    border-radius: 6px;
-    padding: 4px 8px;
-    font-size: 11px;
-    font-family: -apple-system, sans-serif;
-    font-weight: 500;
-    pointer-events: none;
-    z-index: 2147483647;
-    opacity: 1;
-    transition: opacity 0.4s ease;
-    display: flex;
-    align-items: center;
-    gap: 4px;
-  `;
-  badge.innerHTML = `<span style="color:#d97706;font-weight:bold;">⏭</span> Skipped`;
-  document.body.appendChild(badge);
-
-  setTimeout(() => {
-    badge.style.opacity = '0';
-    setTimeout(() => badge.remove(), 400);
-  }, 800);
-}
-
-/**
- * Show/hide the recording status indicator in the corner of the page.
- */
-let indicator: HTMLElement | null = null;
-
-function updateRecordingIndicator(recording: boolean, stepCount: number): void {
-  if (recording) {
-    if (!indicator) {
-      indicator = document.createElement('div');
-      indicator.setAttribute('data-autodoc-overlay', 'true');
-      indicator.id = 'autodoc-recording-indicator';
-      document.body.appendChild(indicator);
-    }
-    indicator.innerHTML = `
-      <div style="display:flex;align-items:center;gap:6px;">
-        <span style="
-          width:6px;height:6px;border-radius:50%;
-          background:#ef4444;
-          animation:autodoc-blink 1.5s infinite;
-          display:inline-block;
-        "></span>
-        <span>
-          ${stepCount} step${stepCount !== 1 ? 's' : ''}
-        </span>
-      </div>
-    `;
-  } else {
-    indicator?.remove();
-    indicator = null;
+    if (!finishReceived) finishCapture(false, 'Could not reach AutoDoc. Reload the page and try again.');
   }
 }
 
-/**
- * Show a duplicate detection prompt and return whether to skip.
- */
-async function showDuplicatePrompt(similarity: number): Promise<boolean> {
-  return new Promise((resolve) => {
-    const dialog = document.createElement('div');
-    dialog.setAttribute('data-autodoc-overlay', 'true');
-    dialog.style.cssText = `
-      position: fixed;
-      top: 24px;
-      right: 24px;
-      background: #ffffff;
-      color: #0f172a;
-      border-radius: 8px;
-      padding: 16px;
-      z-index: 2147483647;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      box-shadow: 0 10px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1);
-      border: 1px solid #e2e8f0;
-      width: 280px;
-    `;
-    dialog.innerHTML = `
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
-        <div style="font-size:16px;">🔍</div>
-        <div style="font-weight:600;font-size:14px;color:#0f172a;">Similar Screenshot</div>
-      </div>
-      <div style="font-size:12px;color:#475569;margin-bottom:16px;line-height:1.4;">
-        This step looks ${Math.round(similarity * 100)}% similar to the previous one. Skip the duplicate?
-      </div>
-      <div style="display:flex;gap:8px;justify-content:flex-end;">
-        <button id="autodoc-dup-keep" style="
-          background:#ffffff;color:#475569;border:1px solid #cbd5e1;
-          border-radius:6px;padding:6px 12px;
-          font-size:12px;font-weight:500;cursor:pointer;
-        ">Keep</button>
-        <button id="autodoc-dup-skip" style="
-          background:#2563eb;color:white;border:none;
-          border-radius:6px;padding:6px 12px;
-          font-size:12px;font-weight:500;cursor:pointer;
-        ">Skip</button>
-      </div>
-    `;
+function finishCapture(ok: boolean, error?: string): void {
+  finishReceived = true;
+  isCapturing = false;
+  restoreOverlay();
+  renderControls();
+  setStatus(ok ? 'Saved' : error || 'Capture failed. Please try again.', !ok);
+}
 
-    document.body.appendChild(dialog);
+function setStatus(text: string, error = false): void {
+  lastStatus = text;
+  lastStatusError = error;
+  if (status) {
+    status.textContent = text;
+    status.style.color = error ? '#b91c1c' : '#475569';
+  }
+}
 
-    dialog.querySelector('#autodoc-dup-skip')!.addEventListener('click', () => {
-      dialog.remove();
-      resolve(true); // Skip
+function restoreOverlay(): void {
+  clearTimeout(restoreTimer);
+  host?.style.removeProperty('visibility');
+}
+
+/** A quiet DOM period handles SPA updates; a deadline avoids hanging on live pages. */
+async function prepareCapture(): Promise<unknown> {
+  await new Promise<void>(resolve => {
+    const started = Date.now();
+    let lastChange = started;
+    const observer = new MutationObserver(records => {
+      if (records.some(record => record.target !== host && !host?.contains(record.target))) lastChange = Date.now();
     });
-    dialog.querySelector('#autodoc-dup-keep')!.addEventListener('click', () => {
-      dialog.remove();
-      resolve(false); // Keep
-    });
-
-    // Auto-dismiss after 8 seconds (default: keep)
-    setTimeout(() => {
-      if (document.body.contains(dialog)) {
-        dialog.remove();
-        resolve(false);
+    observer.observe(document.documentElement, { subtree: true, childList: true, attributes: true, characterData: true });
+    const timer = setInterval(() => {
+      const now = Date.now();
+      const imagesReady = Array.from(document.images).every(img => img.complete ||
+        img.getBoundingClientRect().top > innerHeight || img.getBoundingClientRect().bottom < 0);
+      if ((now - started >= 350 && now - lastChange >= 250 && imagesReady) || now - started >= 2000) {
+        observer.disconnect();
+        clearInterval(timer);
+        resolve();
       }
-    }, 8000);
+    }, 50);
   });
+  host?.style.setProperty('visibility', 'hidden', 'important');
+  clearTimeout(restoreTimer);
+  restoreTimer = setTimeout(restoreOverlay, 10000);
+  // Allow the hidden toolbar to be painted before captureVisibleTab runs.
+  await new Promise<void>(resolve => {
+    const fallback = setTimeout(resolve, 150);
+    requestAnimationFrame(() => requestAnimationFrame(() => { clearTimeout(fallback); resolve(); }));
+  });
+  return { pageUrl: location.href, pageTitle: document.title, viewportWidth: innerWidth, viewportHeight: innerHeight };
 }
+
+function applyState(state: StateUpdateMessage): void {
+  isRecording = state.isRecording;
+  isPaused = state.isPaused ?? false;
+  stepCount = state.stepCount;
+  if (!isRecording || isPaused) captureKeyHeld = false;
+  renderControls();
+}
+
+function renderControls(): void {
+  if (!isRecording) {
+    host?.remove(); host = null; status = null;
+    return;
+  }
+  if (!host) {
+    host = document.createElement('div');
+    host.setAttribute('data-autodoc-overlay', 'true');
+    host.style.cssText = 'all:initial!important;position:fixed!important;bottom:20px!important;right:20px!important;z-index:2147483647!important;';
+    const shadow = host.attachShadow({ mode: 'open' });
+    shadow.innerHTML = `
+      <style>
+        :host { color-scheme: light; }
+        .panel { font:12px/1.5 system-ui,sans-serif; background:white; color:#0f172a; border:1px solid #cbd5e1;
+          border-radius:12px; padding:12px; box-shadow:0 4px 20px #0002; width:280px; }
+        .row { display:flex; gap:6px; margin:8px 0; }
+        button { font:inherit; border:1px solid #cbd5e1; background:#f8fafc; color:#0f172a; border-radius:6px; padding:6px 10px; cursor:pointer; }
+        button:focus-visible { outline:2px solid #2563eb; outline-offset:2px; }
+        button:disabled { opacity:.5; cursor:default; }
+        #capture { background:#2563eb; color:white; border-color:#2563eb; }
+        #status { overflow-wrap:anywhere; }
+      </style>
+      <section class="panel" aria-label="AutoDoc recording controls">
+        <strong id="count"></strong>
+        <div class="row"><button id="capture">Capture</button><button id="pause">Pause</button><button id="undo">Undo last</button></div>
+        <div>Hold C + left-click, or use Capture.</div>
+        <div id="status" role="status" aria-live="polite"></div>
+      </section>`;
+    document.documentElement.appendChild(host);
+    captureButton = shadow.querySelector('#capture');
+    pauseButton = shadow.querySelector('#pause');
+    undoButton = shadow.querySelector('#undo');
+    status = shadow.querySelector('#status');
+    setStatus(lastStatus, lastStatusError);
+    captureButton!.addEventListener('click', () => { void requestCapture(innerWidth / 2, innerHeight / 2); });
+    pauseButton!.addEventListener('click', () => { void control(isPaused ? 'RESUME_RECORDING' : 'PAUSE_RECORDING'); });
+    undoButton!.addEventListener('click', () => { void control('UNDO_CAPTURE'); });
+  }
+  host.shadowRoot!.querySelector('#count')!.textContent = `${isPaused ? 'Paused' : 'Recording'} - ${stepCount} steps`;
+  captureButton!.disabled = isPaused || isCapturing;
+  pauseButton!.textContent = isPaused ? 'Resume' : 'Pause';
+  pauseButton!.disabled = isCapturing;
+  undoButton!.disabled = isCapturing || stepCount === 0;
+}
+
+async function control(type: 'PAUSE_RECORDING' | 'RESUME_RECORDING' | 'UNDO_CAPTURE'): Promise<void> {
+  pauseButton!.disabled = true;
+  undoButton!.disabled = true;
+  try {
+    const result = await chrome.runtime.sendMessage({ type });
+    if (!result?.ok) throw new Error(result?.error || 'Action failed. Please try again.');
+    setStatus(type === 'UNDO_CAPTURE' ? 'Last capture removed' : type === 'PAUSE_RECORDING' ? 'Recording paused' : 'Recording resumed');
+  } catch (error) { setStatus(String(error), true); }
+  finally { renderControls(); }
+}
+
+chrome.runtime.onMessage.addListener((message: ExtensionMessage, _sender, respond) => {
+  (async () => {
+    switch (message.type) {
+      case 'STATE_UPDATE': applyState(message); return { ok: true };
+      case 'GET_STATE': return { ok: true };
+      case 'PREPARE_CAPTURE': return prepareCapture();
+      case 'CAPTURE_FINISHED': finishCapture(message.ok, message.error); return { ok: true };
+      case 'ANNOTATE_SCREENSHOT':
+        return { annotatedDataUrl: await annotateScreenshot(message.rawDataUrl, message) };
+      default: return { error: 'Unknown message' };
+    }
+  })().then(respond).catch(error => respond({ error: String(error) }));
+  return true;
+});
+
+void chrome.runtime.sendMessage({ type: 'GET_STATE' }).then(state => {
+  if (state?.type === 'STATE_UPDATE') applyState(state);
+}).catch(() => {});

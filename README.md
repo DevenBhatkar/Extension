@@ -11,7 +11,7 @@
 
 | Feature | Description |
 |---|---|
-| 🎥 **One-click Recording** | Click Start → interact with any page → every click is captured automatically |
+| 🎥 **One-click Recording** | Click Start → interact with any page → hold C + left-click to capture a step |
 | 📸 **Smart Screenshot Capture** | Uses `chrome.tabs.captureVisibleTab` for pixel-perfect captures |
 | 🎨 **Canvas Annotation** | Auto-draws step badges, glow rings, and arrows at the exact click location |
 | 📋 **Documentation Editor** | Full-page editor with drag-and-drop step reordering (SortableJS) |
@@ -20,7 +20,7 @@
 | 🌐 **HTML Export** | Self-contained single-file HTML — no dependencies needed to share |
 | 📝 **Text Notes** | Insert text-only note steps between any screenshots |
 | ✨ **Auto-description** | Generates step descriptions from the clicked element's text/tag |
-| ⌨️ **Keyboard Shortcuts** | `Ctrl+Shift+R` to toggle recording, `Ctrl+Shift+E` to export |
+| ⌨️ **Keyboard Shortcuts** | Hold `C` + left-click to capture while recording |
 | 📑 **Multi-tab Recording** | Track steps seamlessly across multiple browser tabs in one session |
 | 🏷️ **Session Metadata** | Name your sessions via a setup modal for organized file exports |
 | 🔒 **100% Local** | No cloud, no account, no data leaves your machine |
@@ -59,7 +59,7 @@ The AutoDoc icon will appear in your Chrome toolbar.
 1. Navigate to any website
 2. Click the **AutoDoc** toolbar icon
 3. Click **Start Recording**
-4. Interact with the page — every click is captured automatically
+4. Interact with the page — hold C + left-click to capture a step
 5. Click **Stop Recording** when done
 6. Click **View Documentation** to open the editor
 
@@ -149,15 +149,35 @@ Background SW ──────────────────▶ chrome.s
 
 | Shortcut | Action |
 |---|---|
-| `Ctrl+Shift+R` | Toggle recording (start / stop) |
-| `Ctrl+Shift+E` | Export PDF (opens editor with auto-export) |
+| Hold `C` + left-click | Capture a step while recording |
 | `←` / `→` | Navigate steps in the editor |
 | `Delete` | Delete selected step |
 | `Escape` | Close modal / fullscreen viewer |
 
 ---
 
+Capture is armed only when C is pressed outside text fields. Release C before typing. Ordinary clicks and Ctrl/Cmd/Alt/Shift-clicks retain their normal behavior. Website-specific C shortcuts may still apply. Recording and export commands have no default hotkeys; optionally assign them at `chrome://extensions/shortcuts` (clear old assignments there if upgrading).
+
 ## Development
+
+### Recording and image editing
+
+- Use **Capture** in the floating toolbar to capture the current page without a key press. The toolbar is excluded from the screenshot.
+- Use **Pause / Resume** in the toolbar or popup to keep the same session while navigating between steps.
+- Use **Undo last capture** in the popup or toolbar to remove the most recently captured screenshot. Notes are preserved.
+- Captures wait for page loading and a short quiet period in page updates, with a bounded timeout for live pages. For long animations or delayed content, wait for the desired state and use Capture. Switching tabs cancels the pending capture. Navigation screenshots show the resulting page without a misplaced click marker.
+- **Saved** appears after storage succeeds; failures display an explanation and allow another attempt.
+- In the documentation editor, select a screenshot and choose **Edit screenshot**. Draw arrows or highlights, move marks, resize them using endpoint handles, or draw a crop rectangle. Use Undo edit, Remove crop, or Reset to original as needed. Save changes applies the image to PDF, HTML, and screenshot exports. Cancel discards unsaved edits. The original image is retained.
+
+### Validation
+
+```bash
+npm run typecheck
+npm test
+npm run test:browser -- --headed
+```
+
+The browser checks exercise real Chrome input and canvas behavior with mocked extension APIs. Set `CHROME_PATH` if Chrome is installed outside the default Windows location. Headed mode leaves its isolated test window open for inspection; close it when finished.
 
 ```bash
 # Watch mode (rebuilds on every file save)
