@@ -81,6 +81,8 @@ async function main() {
       await key('keyDown'); await click(80, 50, modifier); await key('keyUp');
     }
     assert.equal(await count(), 1);
+    await cdp('Input.dispatchKeyEvent', { type:'keyDown', key:'Escape', code:'Escape' });
+    await cdp('Input.dispatchKeyEvent', { type:'keyUp', key:'Escape', code:'Escape' });
     await click(80, 110); await key('keyDown'); await click(80, 50); await key('keyUp');
     assert.equal(await count(), 1);
     await evaluate(`fail = true; document.querySelector('[data-autodoc-overlay]').shadowRoot.querySelector('#capture').click()`);
@@ -91,6 +93,20 @@ async function main() {
     await evaluate(`receiver({ type:'STATE_UPDATE', isRecording:true, isPaused:true, stepCount:2, sessionId:'test' }, {}, () => {})`);
     await key('keyDown'); await click(80, 50); await key('keyUp'); assert.equal(await count(), 2);
     assert.equal(await evaluate(`document.querySelector('[data-autodoc-overlay]').shadowRoot.querySelector('#capture').disabled`), true);
+    await evaluate(`receiver({ type:'STATE_UPDATE', isRecording:true, isPaused:false, stepCount:2, sessionId:'test' }, {}, () => {}); fail = false;`);
+    await key('keyDown'); await key('keyUp');
+    await click(80, 50); await delay(100);
+    assert.equal(await count(), 3, 'Press/release C then tap captures once');
+    await click(80, 50);
+    assert.equal(await count(), 3, 'Arming is consumed by one tap');
+    await key('keyDown');
+    await cdp('Input.dispatchMouseEvent', { type:'mousePressed', x:80, y:50, button:'left', clickCount:1 });
+    await delay(100);
+    assert.equal(await count(), 4, 'Capture starts before the click is released');
+    await cdp('Input.dispatchMouseEvent', { type:'mouseReleased', x:80, y:50, button:'left', clickCount:1 });
+    await key('keyUp'); await delay(100);
+    assert.equal(await count(), 4, 'Click does not duplicate pointer capture');
+    console.log('PASS: press/release C then tap, one-shot arming, early capture, no duplicate click capture.');
     console.log('PASS: trusted C + click, plain/modifier clicks, typing, toolbar capture, hidden controls, save failure, pause.');
 
     await evaluate(`receiver({ type:'STATE_UPDATE', isRecording:false, stepCount:2, sessionId:'test' }, {}, () => {});

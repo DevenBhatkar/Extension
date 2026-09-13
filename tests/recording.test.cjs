@@ -78,14 +78,21 @@ test('capture failures and tab switches never save a step or report success', as
   }
 });
 
-test('navigation saves the resulting page without a misplaced click marker', async () => {
+test('navigation does not silently save a different page', async () => {
   const w = worker(); await w.send({ type: 'START_RECORDING', tabId: 7 });
   w.setTab({ url: 'https://example.com/next' });
+  const result = await w.capture();
+  assert.equal(result.ok, false);
+  assert.match(result.error, /navigated/);
+  assert.equal(w.data.autodoc_sessions[0].steps.length, 0);
+});
+
+test('capture does not wait for loading or an artificial delay', async () => {
+  const w = worker(); await w.send({ type: 'START_RECORDING', tabId: 7 });
+  w.setTab({ status: 'loading' });
+  const started = performance.now();
   assert.equal((await w.capture()).ok, true);
-  const step = w.data.autodoc_sessions[0].steps[0];
-  assert.equal(step.pageUrl, 'https://example.com/next');
-  assert.equal(step.screenshotDataUrl, step.rawScreenshotDataUrl);
-  assert.equal(step.imageEdits.marks.length, 0);
+  assert.ok(performance.now() - started < 250, 'Worker must not add a stabilization delay');
 });
 
 test('capture and undo are serialized; image updates preserve other data', async () => {

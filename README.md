@@ -156,7 +156,7 @@ Background SW ──────────────────▶ chrome.s
 
 ---
 
-Capture is armed only when C is pressed outside text fields. Release C before typing. Ordinary clicks and Ctrl/Cmd/Alt/Shift-clicks retain their normal behavior. Website-specific C shortcuts may still apply. Recording and export commands have no default hotkeys; optionally assign them at `chrome://extensions/shortcuts` (clear old assignments there if upgrading).
+Capture is armed only when C is pressed outside text fields. You can hold C while clicking, or release C and tap within five seconds (useful when the touchpad suppresses taps during typing). The released-key gesture captures once. Escape, another key, leaving the tab, or pausing cancels it. Ordinary clicks and Ctrl/Cmd/Alt/Shift-clicks retain their normal behavior. Website-specific C shortcuts may still apply. Recording and export commands have no default hotkeys; optionally assign them at `chrome://extensions/shortcuts` (clear old assignments there if upgrading).
 
 ## Development
 
@@ -165,7 +165,7 @@ Capture is armed only when C is pressed outside text fields. Release C before ty
 - Use **Capture** in the floating toolbar to capture the current page without a key press. The toolbar is excluded from the screenshot.
 - Use **Pause / Resume** in the toolbar or popup to keep the same session while navigating between steps.
 - Use **Undo last capture** in the popup or toolbar to remove the most recently captured screenshot. Notes are preserved.
-- Captures wait for page loading and a short quiet period in page updates, with a bounded timeout for live pages. For long animations or delayed content, wait for the desired state and use Capture. Switching tabs cancels the pending capture. Navigation screenshots show the resulting page without a misplaced click marker.
+- Captures start on pointer contact, without waiting for page loading or page updates. Only a brief paint step hides the toolbar. If navigation replaces the page before capture, the request fails instead of saving a different screen. Use Capture to photograph a transient state without activating a page element.
 - **Saved** appears after storage succeeds; failures display an explanation and allow another attempt.
 - In the documentation editor, select a screenshot and choose **Edit screenshot**. Draw arrows or highlights, move marks, resize them using endpoint handles, or draw a crop rectangle. Use Undo edit, Remove crop, or Reset to original as needed. Save changes applies the image to PDF, HTML, and screenshot exports. Cancel discards unsaved edits. The original image is retained.
 

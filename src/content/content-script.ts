@@ -6,6 +6,16 @@ let isRecording = false;
 let isPaused = false;
 let isCapturing = false;
 let captureKeyHeld = false;
+let captureArmed = false;
+let armTimer: ReturnType<typeof setTimeout> | undefined;
+let pointerCaptureStarted = false;
+
+function clearCaptureGesture(): void {
+  captureKeyHeld = false;
+  captureArmed = false;
+  clearTimeout(armTimer);
+}
+
 let stepCount = 0;
 let host: HTMLDivElement | null = null;
 let status: HTMLElement | null = null;
@@ -22,27 +32,51 @@ function hasModifiers(event: KeyboardEvent | MouseEvent): boolean {
 }
 
 document.addEventListener('keydown', (event: KeyboardEvent) => {
-  if (hasModifiers(event)) captureKeyHeld = false;
+  if (hasModifiers(event) || event.code !== 'KeyC') clearCaptureGesture();
   if (!isRecording || isPaused || event.code !== 'KeyC' || event.repeat ||
       event.isComposing || hasModifiers(event) || !event.isTrusted) return;
   const editing = event.composedPath().some(node => node instanceof HTMLElement && (
     node.isContentEditable || node.matches('input, textarea, select, [role="textbox"], [data-autodoc-overlay]')
   ));
-  if (!editing) captureKeyHeld = true;
+  if (!editing) {
+    captureKeyHeld = true;
+    captureArmed = true;
+    clearTimeout(armTimer);
+    setStatus('Ready: click or tap to capture. Escape cancels.');
+  }
 }, true);
 document.addEventListener('keyup', event => {
-  if (event.code === 'KeyC') captureKeyHeld = false;
+  if (event.code !== 'KeyC') return;
+  captureKeyHeld = false;
+  if (captureArmed) armTimer = setTimeout(() => {
+    captureArmed = false;
+    setStatus('Capture shortcut expired. Press C to arm again.');
+  }, 5000);
 }, true);
-window.addEventListener('blur', () => { captureKeyHeld = false; });
-document.addEventListener('visibilitychange', () => { captureKeyHeld = false; });
+window.addEventListener('blur', clearCaptureGesture);
+document.addEventListener('visibilitychange', clearCaptureGesture);
 
-document.addEventListener('click', (event: MouseEvent) => {
-  if (!isRecording || isPaused || isCapturing || !captureKeyHeld || !event.isTrusted ||
-      event.button !== 0 || event.detail === 0 || hasModifiers(event)) return;
-  if (event.composedPath().includes(host!)) return;
+function captureGesture(event: MouseEvent): boolean {
+  if (!isRecording || isPaused || isCapturing || !(captureKeyHeld || captureArmed) || !event.isTrusted ||
+      event.button !== 0 || hasModifiers(event)) return false;
+  if (event.composedPath().includes(host!)) return false;
   const target = event.composedPath().find(node => node instanceof HTMLElement) as HTMLElement | undefined;
-  if (!target) return;
+  if (!target) return false;
+  captureArmed = false;
+  clearTimeout(armTimer);
   void requestCapture(event.clientX, event.clientY, target);
+  return true;
+}
+
+// Start on contact, before click handlers navigate or dismiss the target UI.
+// Pointer events cover physical clicks, touchpad taps, pen and touch input.
+document.addEventListener('pointerdown', event => {
+  pointerCaptureStarted = event.isPrimary && captureGesture(event);
+}, true);
+document.addEventListener('click', event => {
+  if (pointerCaptureStarted) { pointerCaptureStarted = false; return; }
+  // Fallback for devices that deliver a click without a pointerdown.
+  captureGesture(event);
 }, true);
 
 async function requestCapture(x: number, y: number, target?: HTMLElement): Promise<void> {
@@ -50,7 +84,7 @@ async function requestCapture(x: number, y: number, target?: HTMLElement): Promi
   isCapturing = true;
   finishReceived = false;
   renderControls();
-  setStatus('Waiting for page updates...');
+  setStatus('Capturing...');
   const message: CaptureStepMessage = {
     type: 'CAPTURE_STEP', manual: !target,
     clickX: x, clickY: y, clickXPercent: x / innerWidth, clickYPercent: y / innerHeight,
@@ -90,32 +124,14 @@ function restoreOverlay(): void {
   host?.style.removeProperty('visibility');
 }
 
-/** A quiet DOM period handles SPA updates; a deadline avoids hanging on live pages. */
+/** Hide only our controls; never wait for page loading or DOM changes. */
 async function prepareCapture(): Promise<unknown> {
-  await new Promise<void>(resolve => {
-    const started = Date.now();
-    let lastChange = started;
-    const observer = new MutationObserver(records => {
-      if (records.some(record => record.target !== host && !host?.contains(record.target))) lastChange = Date.now();
-    });
-    observer.observe(document.documentElement, { subtree: true, childList: true, attributes: true, characterData: true });
-    const timer = setInterval(() => {
-      const now = Date.now();
-      const imagesReady = Array.from(document.images).every(img => img.complete ||
-        img.getBoundingClientRect().top > innerHeight || img.getBoundingClientRect().bottom < 0);
-      if ((now - started >= 350 && now - lastChange >= 250 && imagesReady) || now - started >= 2000) {
-        observer.disconnect();
-        clearInterval(timer);
-        resolve();
-      }
-    }, 50);
-  });
   host?.style.setProperty('visibility', 'hidden', 'important');
   clearTimeout(restoreTimer);
   restoreTimer = setTimeout(restoreOverlay, 10000);
   // Allow the hidden toolbar to be painted before captureVisibleTab runs.
   await new Promise<void>(resolve => {
-    const fallback = setTimeout(resolve, 150);
+    const fallback = setTimeout(resolve, 50);
     requestAnimationFrame(() => requestAnimationFrame(() => { clearTimeout(fallback); resolve(); }));
   });
   return { pageUrl: location.href, pageTitle: document.title, viewportWidth: innerWidth, viewportHeight: innerHeight };
@@ -125,7 +141,7 @@ function applyState(state: StateUpdateMessage): void {
   isRecording = state.isRecording;
   isPaused = state.isPaused ?? false;
   stepCount = state.stepCount;
-  if (!isRecording || isPaused) captureKeyHeld = false;
+  if (!isRecording || isPaused) clearCaptureGesture();
   renderControls();
 }
 
@@ -154,7 +170,7 @@ function renderControls(): void {
       <section class="panel" aria-label="AutoDoc recording controls">
         <strong id="count"></strong>
         <div class="row"><button id="capture">Capture</button><button id="pause">Pause</button><button id="undo">Undo last</button></div>
-        <div>Hold C + left-click, or use Capture.</div>
+        <div>Hold C + click, or press C then tap (5s).</div>
         <div id="status" role="status" aria-live="polite"></div>
       </section>`;
     document.documentElement.appendChild(host);

@@ -39,7 +39,6 @@ function serialize<T>(operation: () => Promise<T>): Promise<T> {
   operations = result.catch(() => {});
   return result;
 }
-const delay = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
 async function withTimeout<T>(task: Promise<T>, ms: number): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
@@ -238,29 +237,14 @@ async function captureStep(message: CaptureStepMessage, tabId?: number): Promise
 
   let result: { ok: boolean; error?: string } = { ok: false };
   try {
-    // Keep the request in the worker so it survives navigation in the source tab.
-    await delay(350);
-    let prepared: { pageUrl: string; pageTitle: string; viewportWidth: number; viewportHeight: number } | undefined;
-    const deadline = Date.now() + 8000;
-    while (Date.now() < deadline) {
-      const tab = await chrome.tabs.get(tabId);
-      if (!tab.active) throw new Error('Capture cancelled because you switched tabs. Return to the page and capture again.');
-      if (tab.status === 'complete') {
-        try {
-          prepared = await withTimeout(chrome.tabs.sendMessage(tabId, { type: 'PREPARE_CAPTURE' }), 3000);
-          if (prepared?.viewportWidth) break;
-        } catch { /* A navigation may have replaced the content script. */ }
-      }
-      await delay(150);
-    }
-    if (!prepared?.viewportWidth) throw new Error('Page is still loading. Wait for it to finish, then capture again.');
     const tab = await chrome.tabs.get(tabId);
-    if (!tab.active || tab.status !== 'complete' || tab.url !== prepared.pageUrl) {
-      throw new Error('Page changed during capture. Please try again.');
-    }
+    if (!tab.active) throw new Error('Capture cancelled because you switched tabs. Return to the page and capture again.');
+    const prepared = await withTimeout(chrome.tabs.sendMessage(tabId, { type: 'PREPARE_CAPTURE' }), 1000);
+    if (!prepared?.viewportWidth) throw new Error('Could not capture this page. Please try again.');
+    if (prepared.pageUrl !== message.pageUrl) throw new Error('The page navigated before capture. Return to the intended screen and capture again.');
     const rawDataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'png' });
     const after = await chrome.tabs.get(tabId);
-    if (!after.active || after.url !== prepared.pageUrl || after.status !== 'complete') {
+    if (!after.active || after.url !== prepared.pageUrl) {
       throw new Error('Page changed during capture. Please try again.');
     }
     const settings = await getSettings();
