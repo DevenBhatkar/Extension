@@ -42,7 +42,7 @@ const screenshotImg = document.getElementById('screenshot-img') as HTMLImageElem
 const btnEditImage = document.createElement('button');
 btnEditImage.className = 'topbar-btn';
 btnEditImage.textContent = 'Edit screenshot';
-btnEditImage.style.marginBottom = '10px';
+btnEditImage.classList.add('edit-image-btn');
 document.getElementById('screenshot-container')!.before(btnEditImage);
 btnEditImage.addEventListener('click', async () => {
   const step = session?.steps.find(item => item.id === selectedStepId);

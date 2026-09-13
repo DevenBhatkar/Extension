@@ -13082,11 +13082,12 @@ const PAGE_W = 210;
 const PAGE_H = 297;
 const MARGIN = 16;
 const CONTENT_W = PAGE_W - MARGIN * 2;
-const BRAND_PURPLE = [124, 58, 237];
-const BRAND_PURPLE_LIGHT = [167, 139, 250];
-const TEXT_DARK = [15, 10, 40];
-const TEXT_GREY = [100, 110, 130];
-const BG_LIGHT = [248, 247, 255];
+const BRAND_PURPLE = [37, 99, 235];
+const BRAND_PURPLE_LIGHT = [147, 197, 253];
+const BRAND_NAVY = [20, 33, 61];
+const TEXT_DARK = [23, 32, 51];
+const TEXT_GREY = [100, 116, 139];
+const BG_LIGHT = [246, 248, 252];
 async function exportSessionAsPdf(session2) {
   const doc = new E({
     orientation: "portrait",
@@ -13103,50 +13104,56 @@ async function exportSessionAsPdf(session2) {
   doc.save(filename);
 }
 function drawCoverPage(doc, session2) {
-  doc.setFillColor(...BG_LIGHT);
-  doc.rect(0, 0, PAGE_W, PAGE_H, "F");
-  doc.setFillColor(...BRAND_PURPLE);
-  doc.rect(0, 0, PAGE_W, 6, "F");
-  doc.setFillColor(240, 237, 255);
-  doc.circle(PAGE_W + 20, -20, 80, "F");
-  doc.setFillColor(240, 237, 255);
-  doc.circle(-20, PAGE_H + 20, 60, "F");
-  const iconX = PAGE_W / 2 - 12;
-  const iconY = 55;
-  doc.setFillColor(...BRAND_PURPLE);
-  roundedRectPDF(doc, iconX, iconY, 24, 24, 4);
   doc.setFillColor(255, 255, 255);
-  doc.circle(PAGE_W / 2, iconY + 12, 5, "F");
+  doc.rect(0, 0, PAGE_W, PAGE_H, "F");
+  doc.setFillColor(...BRAND_NAVY);
+  doc.rect(0, 0, PAGE_W, 104, "F");
+  doc.setFillColor(...BRAND_PURPLE);
+  doc.rect(0, 0, 7, 104, "F");
+  doc.setFillColor(34, 52, 88);
+  doc.circle(PAGE_W + 5, -8, 48, "F");
+  doc.setFillColor(239, 246, 255);
+  doc.circle(-10, PAGE_H + 12, 38, "F");
+  const iconX = MARGIN;
+  const iconY = 18;
+  doc.setFillColor(...BRAND_PURPLE);
+  roundedRectPDF(doc, iconX, iconY, 18, 18, 4);
+  doc.setFillColor(255, 255, 255);
+  doc.circle(iconX + 9, iconY + 9, 3.8, "F");
   doc.setFont("helvetica", "bold");
   doc.setFontSize(10);
-  doc.setTextColor(...BRAND_PURPLE);
-  doc.text("AutoDoc", PAGE_W / 2, iconY + 36, { align: "center" });
+  doc.setTextColor(255, 255, 255);
+  doc.text("AUTODOC  /  WORKFLOW CAPTURE", iconX + 24, iconY + 11);
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(28);
-  doc.setTextColor(...TEXT_DARK);
-  doc.text("Process Documentation", PAGE_W / 2, 115, { align: "center" });
-  doc.setDrawColor(...BRAND_PURPLE_LIGHT);
-  doc.setLineWidth(0.5);
-  doc.line(MARGIN + 20, 122, PAGE_W - MARGIN - 20, 122);
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(16);
+  doc.setFontSize(9);
+  doc.setTextColor(...BRAND_PURPLE_LIGHT);
+  doc.text("PROCESS DOCUMENTATION", MARGIN, 58);
+  doc.setDrawColor(68, 87, 122);
+  doc.setLineWidth(0.3);
+  doc.line(MARGIN, 96, PAGE_W - MARGIN, 96);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(27);
+  doc.setTextColor(255, 255, 255);
+  const sessionLabel = wrapText(doc, session2.name, CONTENT_W - 8, 27);
+  doc.text(sessionLabel, MARGIN, 74);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(8);
   doc.setTextColor(...TEXT_GREY);
-  const sessionLabel = wrapText(doc, session2.name, CONTENT_W - 20, 16);
-  doc.text(sessionLabel, PAGE_W / 2, 133, { align: "center" });
-  let metaY = 148;
+  doc.text("DOCUMENT OVERVIEW", MARGIN, 118);
+  let metaY = 126;
   if (session2.metadata) {
     const m2 = session2.metadata;
-    metaY = 146;
+    metaY = 126;
     doc.setFillColor(255, 255, 255);
-    roundedRectPDF(doc, MARGIN + 20, metaY, CONTENT_W - 40, 32, 4);
-    doc.setDrawColor(230, 225, 255);
+    roundedRectPDF(doc, MARGIN, metaY, CONTENT_W, 38, 4);
+    doc.setDrawColor(218, 225, 235);
     doc.setLineWidth(0.3);
-    roundedRectStrokePDF(doc, MARGIN + 20, metaY, CONTENT_W - 40, 32, 4);
+    roundedRectStrokePDF(doc, MARGIN, metaY, CONTENT_W, 38, 4);
     doc.setFillColor(...BRAND_PURPLE_LIGHT);
-    doc.rect(MARGIN + 20, metaY, 2, 32, "F");
-    const labelX = MARGIN + 28;
-    const valX = MARGIN + 68;
-    let rowY = metaY + 9;
+    doc.rect(MARGIN, metaY, 2, 38, "F");
+    const labelX = MARGIN + 8;
+    const valX = MARGIN + 48;
+    let rowY = metaY + 11;
     doc.setFont("helvetica", "bold");
     doc.setFontSize(8);
     doc.setTextColor(...TEXT_GREY);
@@ -13173,14 +13180,14 @@ function drawCoverPage(doc, session2) {
     doc.setFontSize(9);
     doc.setTextColor(...TEXT_DARK);
     doc.text(m2.recordingDate, valX, rowY);
-    metaY += 38;
+    metaY += 48;
   }
   const statsY = metaY + 2;
   doc.setFillColor(255, 255, 255);
-  roundedRectPDF(doc, MARGIN + 20, statsY, CONTENT_W - 40, 36, 4);
-  doc.setDrawColor(230, 225, 255);
+  roundedRectPDF(doc, MARGIN, statsY, CONTENT_W, 36, 4);
+  doc.setDrawColor(218, 225, 235);
   doc.setLineWidth(0.3);
-  roundedRectStrokePDF(doc, MARGIN + 20, statsY, CONTENT_W - 40, 36, 4);
+  roundedRectStrokePDF(doc, MARGIN, statsY, CONTENT_W, 36, 4);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(22);
   doc.setTextColor(...BRAND_PURPLE);
@@ -13189,7 +13196,7 @@ function drawCoverPage(doc, session2) {
   doc.setFontSize(9);
   doc.setTextColor(...TEXT_GREY);
   doc.text("Steps", PAGE_W / 2 - 20, statsY + 26, { align: "center" });
-  doc.setDrawColor(220, 215, 250);
+  doc.setDrawColor(218, 225, 235);
   doc.line(PAGE_W / 2, statsY + 5, PAGE_W / 2, statsY + 31);
   const dateStr = formatDate(session2.createdAt);
   doc.setFont("helvetica", "bold");
@@ -13210,17 +13217,24 @@ function drawCoverPage(doc, session2) {
   doc.setTextColor(...TEXT_GREY);
   doc.text(`Generated: ${dateStr}`, PAGE_W / 2, PAGE_H - 20, { align: "center" });
   doc.setFillColor(...BRAND_PURPLE);
-  doc.rect(0, PAGE_H - 6, PAGE_W, 6, "F");
+  doc.rect(0, PAGE_H - 4, PAGE_W, 4, "F");
 }
 async function drawStepPage(doc, step, pageIndex, totalSteps) {
   doc.setFillColor(...BG_LIGHT);
   doc.rect(0, 0, PAGE_W, PAGE_H, "F");
-  doc.setFillColor(...BRAND_PURPLE);
-  doc.rect(0, 0, PAGE_W, 4, "F");
-  let y2 = MARGIN + 6;
+  doc.setFillColor(...BRAND_NAVY);
+  doc.rect(0, 0, PAGE_W, 14, "F");
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(7);
+  doc.setTextColor(255, 255, 255);
+  doc.text("AUTODOC", MARGIN, 9);
+  doc.setFont("helvetica", "normal");
+  doc.setTextColor(174, 191, 218);
+  doc.text(`PROCESS  /  ${pageIndex} OF ${totalSteps}`, PAGE_W - MARGIN, 9, { align: "right" });
+  let y2 = 24;
   const badgeW = 28;
   const badgeH = 9;
-  doc.setFillColor(...BRAND_PURPLE);
+  doc.setFillColor(...BRAND_NAVY);
   roundedRectPDF(doc, MARGIN, y2, badgeW, badgeH, 2);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(7.5);
@@ -13228,30 +13242,31 @@ async function drawStepPage(doc, step, pageIndex, totalSteps) {
   doc.text(`STEP ${step.stepNumber}`, MARGIN + badgeW / 2, y2 + 5.8, { align: "center" });
   const stepTitle = step.description || step.elementText ? step.description?.split("\n")[0] ?? `Click on ${step.elementTag ?? "element"}` : `Step ${step.stepNumber}`;
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(13);
+  doc.setFontSize(14);
   doc.setTextColor(...TEXT_DARK);
-  doc.text(stepTitle, MARGIN + badgeW + 5, y2 + 6.5);
+  const displayTitle = stepTitle.length > 72 ? `${stepTitle.slice(0, 69)}...` : stepTitle;
+  doc.text(displayTitle, MARGIN + badgeW + 5, y2 + 6.5);
   y2 += badgeH + 5;
   if (step.pageUrl) {
-    doc.setFillColor(255, 255, 255);
-    doc.rect(MARGIN, y2, CONTENT_W, 6, "F");
+    doc.setFillColor(235, 240, 247);
+    roundedRectPDF(doc, MARGIN, y2, CONTENT_W, 7, 2);
     doc.setFont("helvetica", "normal");
     doc.setFontSize(6.5);
     doc.setTextColor(...TEXT_GREY);
     const shortUrl = step.pageUrl.length > 80 ? step.pageUrl.slice(0, 77) + "..." : step.pageUrl;
-    doc.text(`🔗 ${shortUrl}`, MARGIN + 2, y2 + 4);
-    y2 += 8;
+    doc.text(shortUrl, MARGIN + 3, y2 + 4.5);
+    y2 += 10;
   }
   const screenshotDataUrl = step.screenshotDataUrl || step.rawScreenshotDataUrl;
   if (screenshotDataUrl) {
     try {
       const imgInfo = await getImageDimensions(screenshotDataUrl);
-      const maxImgH = 160;
+      const maxImgH = 158;
       const aspectRatio = imgInfo.width / imgInfo.height;
       const imgW = CONTENT_W;
       const imgH = Math.min(imgW / aspectRatio, maxImgH);
-      doc.setFillColor(220, 215, 240);
-      doc.rect(MARGIN + 1.5, y2 + 1.5, CONTENT_W, imgH, "F");
+      doc.setFillColor(205, 214, 226);
+      roundedRectPDF(doc, MARGIN + 1.5, y2 + 1.5, CONTENT_W, imgH, 2);
       doc.addImage(
         screenshotDataUrl,
         "PNG",
@@ -13262,8 +13277,8 @@ async function drawStepPage(doc, step, pageIndex, totalSteps) {
         void 0,
         "FAST"
       );
-      doc.setDrawColor(...BRAND_PURPLE_LIGHT);
-      doc.setLineWidth(0.3);
+      doc.setDrawColor(203, 213, 225);
+      doc.setLineWidth(0.4);
       doc.rect(MARGIN, y2, CONTENT_W, imgH);
       y2 += imgH + 6;
     } catch (err2) {
@@ -13274,8 +13289,8 @@ async function drawStepPage(doc, step, pageIndex, totalSteps) {
   if (step.description || step.isNote) {
     doc.setFont("helvetica", "bold");
     doc.setFontSize(8);
-    doc.setTextColor(...BRAND_PURPLE);
-    doc.text("DESCRIPTION", MARGIN, y2 + 3);
+    doc.setTextColor(...TEXT_GREY);
+    doc.text(step.isNote ? "NOTE" : "INSTRUCTIONS", MARGIN, y2 + 3);
     y2 += 6;
     const descText = step.isNote ? step.noteContent ?? "" : step.description ?? "";
     if (descText) {
@@ -13286,10 +13301,10 @@ async function drawStepPage(doc, step, pageIndex, totalSteps) {
       const textH = lines.length * 5 + 6;
       doc.setFillColor(255, 255, 255);
       roundedRectPDF(doc, MARGIN, y2, CONTENT_W, textH, 2);
-      doc.setDrawColor(230, 225, 255);
-      doc.setLineWidth(0.2);
-      roundedRectStrokePDF(doc, MARGIN, y2, CONTENT_W, textH, 2);
-      doc.setFillColor(...BRAND_PURPLE_LIGHT);
+      doc.setDrawColor(218, 225, 235);
+      doc.setLineWidth(0.3);
+      roundedRectStrokePDF(doc, MARGIN, y2, CONTENT_W, textH, 3);
+      doc.setFillColor(...BRAND_PURPLE);
       doc.rect(MARGIN, y2, 2, textH, "F");
       doc.text(lines, MARGIN + 5, y2 + 5);
       y2 += textH + 5;
@@ -13304,13 +13319,13 @@ async function drawStepPage(doc, step, pageIndex, totalSteps) {
   doc.setFontSize(7);
   doc.setTextColor(...TEXT_GREY);
   doc.text(
-    `Captured at ${timestamp}  ·  Step ${pageIndex} of ${totalSteps}`,
+    `Captured ${timestamp}  |  Step ${pageIndex} of ${totalSteps}`,
     PAGE_W - MARGIN,
     PAGE_H - 10,
     { align: "right" }
   );
-  doc.setFillColor(...BRAND_PURPLE);
-  doc.rect(0, PAGE_H - 4, PAGE_W, 4, "F");
+  doc.setFillColor(...BRAND_NAVY);
+  doc.rect(0, PAGE_H - 3, PAGE_W, 3, "F");
 }
 function addPageNumbers(doc, stepCount) {
   const totalPages = stepCount + 1;
@@ -13477,7 +13492,7 @@ const screenshotImg = document.getElementById("screenshot-img");
 const btnEditImage = document.createElement("button");
 btnEditImage.className = "topbar-btn";
 btnEditImage.textContent = "Edit screenshot";
-btnEditImage.style.marginBottom = "10px";
+btnEditImage.classList.add("edit-image-btn");
 document.getElementById("screenshot-container").before(btnEditImage);
 btnEditImage.addEventListener("click", async () => {
   const step = session?.steps.find((item) => item.id === selectedStepId);

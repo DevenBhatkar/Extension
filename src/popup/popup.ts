@@ -41,7 +41,7 @@ const btnUndo = document.createElement('button');
 btnUndo.className = 'btn btn-secondary';
 btnUndo.textContent = 'Undo last capture';
 const controls = document.createElement('div');
-controls.style.cssText = 'display:flex;gap:8px;margin:10px 0';
+controls.className = 'recording-controls';
 controls.append(btnPause, btnUndo);
 btnToggle.after(controls);
 let isPaused = false;
