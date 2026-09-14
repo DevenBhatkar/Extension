@@ -158,11 +158,13 @@ let isPaused = false;
 let isCapturing = false;
 let captureKeyHeld = false;
 let captureArmed = false;
+let captureDeadline = 0;
 let armTimer;
 let pointerCaptureStarted = false;
 function clearCaptureGesture() {
   captureKeyHeld = false;
   captureArmed = false;
+  captureDeadline = 0;
   clearTimeout(armTimer);
 }
 let stepCount = 0;
@@ -176,36 +178,36 @@ let finishReceived = false;
 let lastStatus = "";
 let lastStatusError = false;
 function hasModifiers(event) {
-  return event.ctrlKey || event.metaKey || event.altKey || event.shiftKey;
+  return event.ctrlKey || event.metaKey || event.shiftKey;
 }
 document.addEventListener("keydown", (event) => {
-  if (hasModifiers(event) || event.code !== "KeyC") clearCaptureGesture();
-  if (!isRecording || isPaused || event.code !== "KeyC" || event.repeat || event.isComposing || hasModifiers(event) || !event.isTrusted) return;
-  const editing = event.composedPath().some((node) => node instanceof HTMLElement && (node.isContentEditable || node.matches('input, textarea, select, [role="textbox"], [data-autodoc-overlay]')));
-  if (!editing) {
-    captureKeyHeld = true;
-    captureArmed = true;
-    clearTimeout(armTimer);
-    setStatus("Ready: click or tap to capture. Escape cancels.");
-  }
+  if (hasModifiers(event) || event.code !== "AltLeft" && event.code !== "AltRight") clearCaptureGesture();
+  if (!isRecording || isPaused || event.code !== "AltLeft" && event.code !== "AltRight" || event.repeat || event.isComposing || hasModifiers(event) || !event.isTrusted) return;
+  captureKeyHeld = true;
+  captureArmed = true;
+  captureDeadline = performance.now() + 5e3;
+  clearTimeout(armTimer);
+  armTimer = setTimeout(() => {
+    clearCaptureGesture();
+    setStatus("Capture shortcut expired. Release Alt and try again.");
+  }, 5e3);
+  setStatus("Hold Alt and left-click or tap the touchpad once within 5 seconds. Escape cancels.");
 }, true);
 document.addEventListener("keyup", (event) => {
-  if (event.code !== "KeyC") return;
-  captureKeyHeld = false;
-  if (captureArmed) armTimer = setTimeout(() => {
-    captureArmed = false;
-    setStatus("Capture shortcut expired. Press C to arm again.");
-  }, 5e3);
+  if (event.code !== "AltLeft" && event.code !== "AltRight") return;
+  clearCaptureGesture();
 }, true);
 window.addEventListener("blur", clearCaptureGesture);
 document.addEventListener("visibilitychange", clearCaptureGesture);
 function captureGesture(event) {
-  if (!isRecording || isPaused || isCapturing || !(captureKeyHeld || captureArmed) || !event.isTrusted || event.button !== 0 || hasModifiers(event)) return false;
+  if (!isRecording || isPaused || !captureKeyHeld || !captureArmed || performance.now() >= captureDeadline || !event.isTrusted || event.button !== 0 || !event.altKey || hasModifiers(event)) return false;
   if (event.composedPath().includes(host)) return false;
   const target = event.composedPath().find((node) => node instanceof HTMLElement);
   if (!target) return false;
-  captureArmed = false;
-  clearTimeout(armTimer);
+  if (isCapturing) {
+    setStatus("Still saving. Wait for Saved, then click again.");
+    return true;
+  }
   void requestCapture(event.clientX, event.clientY, target);
   return true;
 }
@@ -269,8 +271,8 @@ async function prepareCapture() {
   host?.style.setProperty("visibility", "hidden", "important");
   clearTimeout(restoreTimer);
   restoreTimer = setTimeout(restoreOverlay, 1e4);
-  await new Promise((resolve) => {
-    const fallback = setTimeout(resolve, 50);
+  await new Promise((resolve, reject) => {
+    const fallback = setTimeout(() => reject(new Error("Could not prepare the screenshot. Try again.")), 900);
     requestAnimationFrame(() => requestAnimationFrame(() => {
       clearTimeout(fallback);
       resolve();
@@ -293,6 +295,7 @@ function renderControls() {
     return;
   }
   if (!host) {
+    document.querySelectorAll("[data-autodoc-overlay]").forEach((node) => node.remove());
     host = document.createElement("div");
     host.setAttribute("data-autodoc-overlay", "true");
     host.style.cssText = "all:initial!important;position:fixed!important;bottom:20px!important;right:20px!important;z-index:2147483647!important;";
@@ -312,7 +315,7 @@ function renderControls() {
       <section class="panel" aria-label="AutoDoc recording controls">
         <strong id="count"></strong>
         <div class="row"><button id="capture">Capture</button><button id="pause">Pause</button><button id="undo">Undo last</button></div>
-        <div>Hold C + click, or press C then tap (5s).</div>
+        <div>Hold Alt and left-click or tap the touchpad once within 5 seconds.</div>
         <div id="status" role="status" aria-live="polite"></div>
       </section>`;
     document.documentElement.appendChild(host);

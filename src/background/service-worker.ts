@@ -235,10 +235,17 @@ async function captureStep(message: CaptureStepMessage, tabId?: number): Promise
     return { ok: false, error: 'Recording is paused or this tab is not being recorded.' };
   }
 
+  const overlayStyle: chrome.scripting.CSSInjection = {
+    target: { tabId }, origin: 'USER',
+    css: '[data-autodoc-overlay] { display: none !important; }',
+  };
+  let overlayHidden = false;
   let result: { ok: boolean; error?: string } = { ok: false };
   try {
     const tab = await chrome.tabs.get(tabId);
     if (!tab.active) throw new Error('Capture cancelled because you switched tabs. Return to the page and capture again.');
+    await chrome.scripting.insertCSS(overlayStyle);
+    overlayHidden = true;
     const prepared = await withTimeout(chrome.tabs.sendMessage(tabId, { type: 'PREPARE_CAPTURE' }), 1000);
     if (!prepared?.viewportWidth) throw new Error('Could not capture this page. Please try again.');
     if (prepared.pageUrl !== message.pageUrl) throw new Error('The page navigated before capture. Return to the intended screen and capture again.');
@@ -261,18 +268,9 @@ async function captureStep(message: CaptureStepMessage, tabId?: number): Promise
         ? generateAutoDescription(message.elementTag, message.elementText) : '',
       elementTag: message.elementTag ?? '', elementText: message.elementText ?? '',
     };
-    // A manual capture has no clicked page element to annotate.
-    if (!message.manual && message.pageUrl === prepared.pageUrl) {
-      const annotated = await withTimeout(chrome.tabs.sendMessage(tabId, {
-        type: 'ANNOTATE_SCREENSHOT', rawDataUrl, clickX: step.clickX, clickY: step.clickY,
-        stepNumber, viewportWidth: prepared.viewportWidth, viewportHeight: prepared.viewportHeight,
-      }), 3000);
-      if (!annotated?.annotatedDataUrl) throw new Error('Could not annotate the screenshot. Please try again.');
-      step.screenshotDataUrl = annotated.annotatedDataUrl;
-    } else {
-      step.imageEdits = { marks: [], crop: null };
-    }
-    // Re-read after annotation so edits or tab tracking are not overwritten.
+    // Keep captures clean; annotations are added only through the image editor.
+    step.imageEdits = { marks: [], crop: null };
+    // Re-read so edits or tab tracking are not overwritten.
     const current = await getSession(session.id);
     if (!current) throw new Error('Recording session no longer exists.');
     await saveSession({ ...current, steps: [...current.steps, step] });
@@ -281,6 +279,7 @@ async function captureStep(message: CaptureStepMessage, tabId?: number): Promise
   } catch (error) {
     result = { ok: false, error: error instanceof Error ? error.message : String(error) };
   } finally {
+    if (overlayHidden) await chrome.scripting.removeCSS(overlayStyle).catch(() => {});
     await chrome.tabs.sendMessage(tabId, { type: 'CAPTURE_FINISHED', ...result }).catch(() => {});
   }
   return result;

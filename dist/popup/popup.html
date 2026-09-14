@@ -4,6 +4,9 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>AutoDoc</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="popup.css" />
 </head>
 <body>
@@ -17,10 +20,7 @@
             <path d="M9 2L7.5 4H4a1 1 0 00-1 1v14a1 1 0 001 1h16a1 1 0 001-1V5a1 1 0 00-1-1h-3.5L15 2H9z" stroke="white" stroke-width="1.5" stroke-linejoin="round"/>
           </svg>
         </div>
-        <span class="logo-copy">
-          <span class="logo-text">AutoDoc</span>
-          <span class="logo-subtitle">Workflow capture</span>
-        </span>
+        <span class="logo-text">AutoDoc</span>
       </div>
       <div class="status-badge" id="status-badge">
         <span class="status-dot" id="status-dot"></span>
@@ -31,7 +31,7 @@
     <!-- Step Counter -->
     <div class="step-counter" id="step-counter">
       <div class="counter-number" id="step-count">0</div>
-      <div class="counter-label">Steps captured</div>
+      <div class="counter-label">Steps Captured</div>
     </div>
 
     <!-- Session Name -->
@@ -73,7 +73,7 @@
 
     <!-- Keyboard Shortcuts hint -->
     <div class="shortcuts-hint">
-      Hold <kbd>C</kbd> + click, or press <kbd>C</kbd> then tap within 5 seconds. Escape cancels.
+      Hold <kbd>Alt</kbd> and left-click or tap the touchpad once within 5 seconds. Escape cancels.
     </div>
   </div>
 

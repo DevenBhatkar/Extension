@@ -23,10 +23,10 @@ function worker() {
       onStartup: event, onInstalled: event,
       getURL: path => `chrome-extension://test/${path}`, async sendMessage(message) { sent.push(message); } },
     commands: { onCommand: event },
-    scripting: { async insertCSS() {}, async executeScript() {} },
+    scripting: { async insertCSS(css) { sent.push({ type: 'HIDE_OVERLAYS', css }); }, async removeCSS(css) { sent.push({ type: 'RESTORE_OVERLAYS', css }); }, async executeScript() {} },
     tabs: { onCreated: event, onActivated: event, onRemoved: event,
       async query() { return [tab]; }, async get() { return { ...tab }; },
-      async captureVisibleTab(windowId) { captures.push(windowId); if (failCapture) throw new Error('Screenshot permission denied'); return 'data:image/png;base64,raw'; },
+      async captureVisibleTab(windowId) { assert.equal(sent.filter(m => m.type === 'HIDE_OVERLAYS').length > sent.filter(m => m.type === 'RESTORE_OVERLAYS').length, true, 'Overlays are hidden during capture'); captures.push(windowId); if (failCapture) throw new Error('Screenshot permission denied'); return 'data:image/png;base64,raw'; },
       async sendMessage(tabId, message) {
         sent.push({ tabId, ...message });
         if (message.type === 'PREPARE_CAPTURE') return { pageUrl: tab.url, pageTitle: 'Example', viewportWidth: 1000, viewportHeight: 800 };
@@ -117,4 +117,28 @@ test('untracked pages cannot capture and receive inactive state', async () => {
   const state = await w.send({ type: 'GET_STATE' }, { tab: { id: 90 } });
   assert.equal(state.isRecording, false);
   w.setTab({ id: 90 }); assert.equal((await w.capture()).ok, false);
+});
+
+test('click captures save the original screenshot without automatic highlights', async () => {
+  const w = worker();
+  await w.send({ type: 'START_RECORDING', tabId: 7 });
+  assert.equal((await w.capture()).ok, true);
+  const session = w.data.autodoc_sessions[0];
+  assert.ok(session);
+  assert.equal(session.steps[0].screenshotDataUrl, session.steps[0].rawScreenshotDataUrl);
+  assert.deepEqual(session.steps[0].imageEdits, { marks: [], crop: null });
+  assert.equal(w.sent.some(message => message.type === 'ANNOTATE_SCREENSHOT'), false);
+});
+
+test('capture restores the exact overlay hiding rule on success and failure', async () => {
+  for (const fail of [false, true]) {
+    const w = worker();
+    await w.send({ type: 'START_RECORDING', tabId: 7 });
+    if (fail) w.failCapture();
+    await w.capture();
+    const hidden = w.sent.find(m => m.type === 'HIDE_OVERLAYS');
+    const restored = w.sent.find(m => m.type === 'RESTORE_OVERLAYS');
+    assert.equal(hidden.css.origin, 'USER');
+    assert.deepEqual(restored.css, hidden.css);
+  }
 });

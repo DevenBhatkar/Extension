@@ -208,7 +208,10 @@ export interface AnnotationOptions {
 
 /** Image coordinates are stored against the original screenshot, before cropping. */
 export interface ImageMark {
-  kind: 'arrow' | 'highlight';
+  kind: 'arrow' | 'highlight' | 'text';
+  text?: string;
+  fontSize?: number;
+  color?: string;
   x: number;
   y: number;
   endX: number;

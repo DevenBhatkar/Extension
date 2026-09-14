@@ -5,7 +5,7 @@ function rectangle(a2, b2) {
   return { x: Math.min(a2.x, b2.x), y: Math.min(a2.y, b2.y), width: Math.abs(b2.x - a2.x), height: Math.abs(b2.y - a2.y) };
 }
 function hitMark(mark, point, tolerance) {
-  if (mark.kind === "highlight") {
+  if (mark.kind === "highlight" || mark.kind === "text") {
     const box = rectangle({ x: mark.x, y: mark.y }, { x: mark.endX, y: mark.endY });
     return point.x >= box.x - tolerance && point.x <= box.x + box.width + tolerance && point.y >= box.y - tolerance && point.y <= box.y + box.height + tolerance;
   }
@@ -13,13 +13,41 @@ function hitMark(mark, point, tolerance) {
   const t2 = Math.max(0, Math.min(1, ((point.x - mark.x) * dx + (point.y - mark.y) * dy) / (dx * dx + dy * dy || 1)));
   return Math.hypot(point.x - mark.x - t2 * dx, point.y - mark.y - t2 * dy) <= tolerance;
 }
+function resizeText(mark, point, endpoint, width, height) {
+  const anchorX = endpoint === "end" ? mark.x : mark.endX;
+  const anchorY = endpoint === "end" ? mark.y : mark.endY;
+  const direction = endpoint === "end" ? 1 : -1;
+  const originalW = Math.max(1, mark.endX - mark.x);
+  const originalH = Math.max(1, mark.endY - mark.y);
+  const requested = ((point.x - anchorX) * direction * originalW + (point.y - anchorY) * direction * originalH) / (originalW ** 2 + originalH ** 2);
+  const maxScale = Math.min(
+    (endpoint === "end" ? width - anchorX : anchorX) / originalW,
+    (endpoint === "end" ? height - anchorY : anchorY) / originalH,
+    120 / (mark.fontSize ?? 28)
+  );
+  const scale = Math.max(0.01, Math.min(maxScale, Math.max(12 / (mark.fontSize ?? 28), requested)));
+  const w2 = originalW * scale, h2 = originalH * scale;
+  return {
+    ...mark,
+    fontSize: (mark.fontSize ?? 28) * scale,
+    x: endpoint === "end" ? anchorX : anchorX - w2,
+    y: endpoint === "end" ? anchorY : anchorY - h2,
+    endX: endpoint === "end" ? anchorX + w2 : anchorX,
+    endY: endpoint === "end" ? anchorY + h2 : anchorY
+  };
+}
 function drawMark(ctx, mark) {
   ctx.save();
   ctx.strokeStyle = "#2563eb";
   ctx.fillStyle = "#2563eb";
   ctx.lineWidth = 4;
   ctx.lineCap = "round";
-  if (mark.kind === "highlight") {
+  if (mark.kind === "text") {
+    ctx.font = `${mark.fontSize ?? 28}px sans-serif`;
+    ctx.textBaseline = "top";
+    ctx.fillStyle = mark.color ?? "#dc2626";
+    ctx.fillText(mark.text ?? "", mark.x, mark.y, Math.max(1, mark.endX - mark.x));
+  } else if (mark.kind === "highlight") {
     const box = rectangle({ x: mark.x, y: mark.y }, { x: mark.endX, y: mark.endY });
     ctx.fillStyle = "rgba(250, 204, 21, 0.28)";
     ctx.fillRect(box.x, box.y, box.width, box.height);
@@ -84,11 +112,19 @@ async function openImageEditor(step, save2) {
       <button data-tool="move" aria-pressed="true">Move / resize</button>
       <button data-tool="arrow" aria-pressed="false">Arrow</button>
       <button data-tool="highlight" aria-pressed="false">Highlight</button>
+      <button data-tool="text" aria-pressed="false">Add text</button>
       <button data-tool="crop" aria-pressed="false">Crop</button>
       <button id="image-delete">Delete selected</button>
       <button id="image-undo">Undo edit</button>
       <button id="image-uncrop">Remove crop</button>
       <button id="image-reset">Reset to original</button>
+    </div>
+    <div id="image-text-options" hidden>
+      <label>Text <input id="image-text" type="text" maxlength="200" placeholder="Enter text to add" /></label>
+      <label>Size <input id="image-text-size" type="number" min="12" max="120" value="28" /></label>
+      <label>Color <input id="image-text-color" type="color" value="#dc2626" /></label>
+      <button id="image-text-add">Add another text</button>
+      <button id="image-text-update">Update selected text</button>
     </div>
     <p id="image-instructions">Drag a mark to move it, or drag its endpoint handles to resize it. Arrow keys nudge a selected mark.</p>
     <div class="image-canvas-wrap"><canvas tabindex="0" aria-label="Screenshot editing canvas"></canvas></div>
@@ -100,6 +136,9 @@ async function openImageEditor(step, save2) {
   canvas.height = height;
   const ctx = canvas.getContext("2d");
   const status = dialog.querySelector("#image-status");
+  const textInput = dialog.querySelector("#image-text");
+  const sizeInput = dialog.querySelector("#image-text-size");
+  const colorInput = dialog.querySelector("#image-text-color");
   const button = (id) => dialog.querySelector(`#image-${id}`);
   const point = (event) => {
     const bounds = canvas.getBoundingClientRect();
@@ -144,21 +183,47 @@ async function openImageEditor(step, save2) {
       }
       ctx.restore();
     }
+    button("text-update").disabled = edits.marks[selected]?.kind !== "text" || saving;
     button("delete").disabled = selected < 0 || saving;
     button("undo").disabled = history.length === 0 || saving;
     button("uncrop").disabled = !edits.crop || saving;
   };
   dialog.querySelectorAll("[data-tool]").forEach((el) => el.addEventListener("click", () => {
     tool = el.dataset.tool;
+    drag = null;
+    if (tool === "text") {
+      selected = -1;
+      textInput.value = "";
+      status.textContent = "Enter a new label, then click the screenshot to place it.";
+    }
+    dialog.querySelector("#image-text-options").hidden = tool !== "text" && tool !== "move";
+    if (tool === "text") textInput.focus();
+    draw();
     dialog.querySelectorAll("[data-tool]").forEach((other) => other.setAttribute("aria-pressed", String(other === el)));
-    dialog.querySelector("#image-instructions").textContent = tool === "move" ? "Drag a mark to move it, or drag its endpoint handles to resize it. Arrow keys nudge a selected mark." : `Drag on the screenshot to ${tool === "crop" ? "select the area to keep" : `draw an ${tool === "arrow" ? "arrow" : "area highlight"}`}.`;
+    dialog.querySelector("#image-instructions").textContent = tool === "move" ? "Drag a mark to move it, or drag its endpoint handles to resize it. Arrow keys nudge a selected mark." : tool === "text" ? "Enter text, choose a size and color, then click the screenshot to place it. Use Move to reposition it." : `Drag on the screenshot to ${tool === "crop" ? "select the area to keep" : `draw an ${tool === "arrow" ? "arrow" : "area highlight"}`}.`;
   }));
+  button("text-add").onclick = () => dialog.querySelector('[data-tool="text"]').click();
   canvas.addEventListener("pointerdown", (event) => {
     if (saving || event.button !== 0) return;
     event.preventDefault();
     canvas.focus();
     canvas.setPointerCapture(event.pointerId);
     const p2 = point(event), before = copy(edits);
+    if (tool === "text") {
+      if (!textInput.value.trim()) {
+        status.textContent = "Enter text before placing it.";
+        textInput.focus();
+        return;
+      }
+      remember();
+      edits.marks.push(makeTextMark(p2));
+      selected = edits.marks.length - 1;
+      dialog.querySelector('[data-tool="move"]').click();
+      canvas.releasePointerCapture(event.pointerId);
+      status.textContent = "Text added. Drag it to move, or drag a corner handle to resize. Choose Text to add another.";
+      draw();
+      return;
+    }
     let endpoint = null;
     if (tool === "move") {
       const tolerance = 12 * width / canvas.getBoundingClientRect().width;
@@ -173,6 +238,12 @@ async function openImageEditor(step, save2) {
             break;
           }
         }
+      }
+      const selectedMark = edits.marks[selected];
+      if (selectedMark?.kind === "text") {
+        textInput.value = selectedMark.text ?? "";
+        sizeInput.value = String(selectedMark.fontSize ?? 28);
+        colorInput.value = selectedMark.color ?? "#dc2626";
       }
     } else if (tool !== "crop") {
       edits.marks.push({ kind: tool, x: p2.x, y: p2.y, endX: p2.x, endY: p2.y });
@@ -191,7 +262,10 @@ async function openImageEditor(step, save2) {
       mark.endY = p2.y;
     } else if (drag.index >= 0) {
       const original = drag.before.marks[drag.index], mark = edits.marks[drag.index];
-      if (drag.endpoint === "start") {
+      if (original.kind === "text" && drag.endpoint) {
+        Object.assign(mark, resizeText(original, p2, drag.endpoint, width, height));
+        sizeInput.value = String(Math.round(mark.fontSize));
+      } else if (drag.endpoint === "start") {
         mark.x = p2.x;
         mark.y = p2.y;
       } else if (drag.endpoint === "end") {
@@ -226,6 +300,32 @@ async function openImageEditor(step, save2) {
     selected = -1;
     draw();
   });
+  function makeTextMark(p2) {
+    const fontSize = Math.max(12, Math.min(120, Number(sizeInput.value) || 28));
+    ctx.save();
+    ctx.font = `${fontSize}px sans-serif`;
+    const textWidth = Math.min(width, Math.max(1, ctx.measureText(textInput.value.trim()).width));
+    ctx.restore();
+    const x2 = Math.max(0, Math.min(p2.x, width - textWidth));
+    const y2 = Math.max(0, Math.min(p2.y, height - fontSize * 1.2));
+    return {
+      kind: "text",
+      text: textInput.value.trim(),
+      fontSize,
+      color: colorInput.value,
+      x: x2,
+      y: y2,
+      endX: x2 + textWidth,
+      endY: Math.min(height, y2 + fontSize * 1.2)
+    };
+  }
+  button("text-update").onclick = () => {
+    const mark = edits.marks[selected];
+    if (saving || mark?.kind !== "text" || !textInput.value.trim()) return;
+    remember();
+    edits.marks[selected] = makeTextMark(mark);
+    draw();
+  };
   button("delete").onclick = () => {
     if (selected < 0) return;
     remember();
@@ -256,7 +356,7 @@ async function openImageEditor(step, save2) {
       event.preventDefault();
       return;
     }
-    if (event.key === "Delete") {
+    if (event.target === canvas && event.key === "Delete") {
       event.preventDefault();
       button("delete").click();
     }
